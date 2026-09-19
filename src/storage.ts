@@ -10,9 +10,24 @@ export interface SerializedImageItem {
   scaleY: number
 }
 
+export interface SerializedTextItem {
+  id: string
+  text: string
+  fontFamily: string
+  fontSize: number
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  scaleX: number
+  scaleY: number
+}
+
 export interface SerializedPage {
   id: string
   images: SerializedImageItem[]
+  texts?: SerializedTextItem[]
 }
 
 export interface SavedProject {
@@ -20,6 +35,8 @@ export interface SavedProject {
   updatedAt: number
   activePageIndex?: number
   pages: SerializedPage[]
+  pagePreset?: 'A4' | 'Letter' | 'Tabloid'
+  orientation?: 'portrait' | 'landscape'
   // Backward compatibility with older single-page storage format
   images?: SerializedImageItem[]
 }

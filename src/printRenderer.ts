@@ -1,6 +1,4 @@
 import Konva from 'konva'
-import { A4_BASE_WIDTH, A4_BASE_HEIGHT } from './units'
-
 export interface RenderableImage {
   id: string
   image: HTMLImageElement
@@ -13,9 +11,26 @@ export interface RenderableImage {
   scaleY: number
 }
 
+export interface RenderableText {
+  id: string
+  text: string
+  fontFamily: string
+  fontSize: number
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  scaleX: number
+  scaleY: number
+}
+
 export interface RenderablePage {
   id: string
   images: RenderableImage[]
+  texts: RenderableText[]
+  width: number
+  height: number
 }
 
 /**
@@ -31,8 +46,8 @@ export async function renderPageToDataUrl(
   container.style.position = 'fixed'
   container.style.top = '-10000px'
   container.style.left = '-10000px'
-  container.style.width = `${A4_BASE_WIDTH}px`
-  container.style.height = `${A4_BASE_HEIGHT}px`
+  container.style.width = `${page.width}px`
+  container.style.height = `${page.height}px`
   container.style.visibility = 'hidden'
   container.style.pointerEvents = 'none'
   document.body.appendChild(container)
@@ -56,8 +71,8 @@ export async function renderPageToDataUrl(
 
     stage = new Konva.Stage({
       container,
-      width: A4_BASE_WIDTH,
-      height: A4_BASE_HEIGHT,
+      width: page.width,
+      height: page.height,
     })
 
     const layer = new Konva.Layer()
@@ -67,8 +82,8 @@ export async function renderPageToDataUrl(
     const background = new Konva.Rect({
       x: 0,
       y: 0,
-      width: A4_BASE_WIDTH,
-      height: A4_BASE_HEIGHT,
+      width: page.width,
+      height: page.height,
       fill: '#ffffff',
     })
     layer.add(background)
@@ -86,6 +101,25 @@ export async function renderPageToDataUrl(
         rotation: item.rotation,
       })
       layer.add(konvaImage)
+    }
+
+    for (const item of page.texts) {
+      const konvaText = new Konva.Text({
+        id: item.id,
+        text: item.text,
+        x: item.x,
+        y: item.y,
+        width: item.width,
+        height: item.height,
+        scaleX: item.scaleX,
+        scaleY: item.scaleY,
+        rotation: item.rotation,
+        fontFamily: item.fontFamily,
+        fontSize: item.fontSize,
+        fill: '#0f172a',
+        verticalAlign: 'middle',
+      })
+      layer.add(konvaText)
     }
 
     layer.draw()

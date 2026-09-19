@@ -14,18 +14,22 @@ import {
   loadProject,
   clearSavedProject,
   type SerializedImageItem,
+  type SerializedTextItem,
 } from './storage'
 import {
-  A4_BASE_WIDTH,
-  A4_BASE_HEIGHT,
   pxToCm,
   cmToPx,
   formatCm,
+  PAGE_PRESETS,
+  pageDimensions,
+  type PagePreset,
+  type PageOrientation,
 } from './units'
 import { renderAllPagesForPrint } from './printRenderer'
 import './App.css'
 
 interface CanvasImageItem {
+  type: 'image'
   id: string
   src: string
   image: HTMLImageElement
@@ -38,9 +42,25 @@ interface CanvasImageItem {
   scaleY: number
 }
 
+interface CanvasTextItem {
+  type: 'text'
+  id: string
+  text: string
+  fontFamily: string
+  fontSize: number
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  scaleX: number
+  scaleY: number
+}
+
 interface CanvasPage {
   id: string
   images: CanvasImageItem[]
+  texts: CanvasTextItem[]
 }
 
 interface TransformingInfo {
@@ -67,12 +87,16 @@ interface HistorySnapshot {
   activePageIndex: number
 }
 
+type SelectedItem = CanvasImageItem | CanvasTextItem
+
 export default function App() {
   const [fitScale, setFitScale] = useState(1)
   const [zoomFactor, setZoomFactor] = useState(1)
   const [pages, setPages] = useState<CanvasPage[]>([
-    { id: 'page-1', images: [] },
+    { id: 'page-1', images: [], texts: [] },
   ])
+  const [pagePreset, setPagePreset] = useState<PagePreset>('A4')
+  const [orientation, setOrientation] = useState<PageOrientation>('portrait')
   const [activePageIndex, setActivePageIndex] = useState<number>(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -99,6 +123,9 @@ export default function App() {
     past: HistorySnapshot[]
     future: HistorySnapshot[]
   }>({ past: [], future: [] })
+  const previousDimensionsRef = useRef<{ width: number; height: number } | null>(
+    null
+  )
 
   useEffect(() => {
     pagesRef.current = pages
@@ -110,17 +137,23 @@ export default function App() {
     Math.max(0, activePageIndex),
     Math.max(0, pages.length - 1)
   )
-  const currentPage = pages[safePageIndex] || { id: 'default', images: [] }
+  const currentPage = pages[safePageIndex] || { id: 'default', images: [], texts: [] }
   const currentImages = currentPage.images
+  const currentTexts = currentPage.texts
+  const dimensions = pageDimensions(pagePreset, orientation)
 
   const selectedImage =
     currentImages.find((img) => img.id === selectedId) || null
+  const selectedText =
+    currentTexts.find((item) => item.id === selectedId) || null
+  const selectedItem: SelectedItem | null = selectedImage || selectedText
 
   // Helper to update only the active page's images
   const clonePages = useCallback((sourcePages: CanvasPage[]) => {
     return sourcePages.map((page) => ({
       ...page,
       images: page.images.map((image) => ({ ...image })),
+      texts: page.texts.map((text) => ({ ...text })),
     }))
   }, [])
 
@@ -134,6 +167,32 @@ export default function App() {
     ]
     historyRef.current.future = []
   }, [clonePages])
+
+  useEffect(() => {
+    const previous = previousDimensionsRef.current
+    previousDimensionsRef.current = { width: dimensions.width, height: dimensions.height }
+    if (
+      !isLoaded ||
+      !previous ||
+      (previous.width === dimensions.width && previous.height === dimensions.height)
+    ) return
+    recordHistory()
+    const scaleX = dimensions.width / previous.width
+    const scaleY = dimensions.height / previous.height
+    setPages((currentPages) =>
+      currentPages.map((page) => ({
+        ...page,
+        images: page.images.map((item) => ({ ...item, x: item.x * scaleX, y: item.y * scaleY })),
+        texts: page.texts.map((item) => ({
+          ...item,
+          x: item.x * scaleX,
+          y: item.y * scaleY,
+          width: item.width * scaleX,
+          height: item.height * scaleY,
+        })),
+      }))
+    )
+  }, [dimensions.height, dimensions.width, isLoaded, recordHistory])
 
   const updateCurrentPageImages = useCallback(
     (
@@ -149,6 +208,26 @@ export default function App() {
           const nextImages =
             typeof updater === 'function' ? updater(page.images) : updater
           return { ...page, images: nextImages }
+        })
+      )
+    },
+    [recordHistory, safePageIndex]
+  )
+
+  const updateCurrentPageTexts = useCallback(
+    (
+      updater:
+        | CanvasTextItem[]
+        | ((prev: CanvasTextItem[]) => CanvasTextItem[]),
+      shouldRecordHistory = true
+    ) => {
+      if (shouldRecordHistory) recordHistory()
+      setPages((prevPages) =>
+        prevPages.map((page, idx) => {
+          if (idx !== safePageIndex) return page
+          const nextTexts =
+            typeof updater === 'function' ? updater(page.texts) : updater
+          return { ...page, texts: nextTexts }
         })
       )
     },
@@ -184,11 +263,11 @@ export default function App() {
   }, [clonePages, restoreHistorySnapshot])
 
   // Derived current physical measurements
-  const currentPhysicalW = selectedImage
-    ? pxToCm(Math.abs(selectedImage.width * selectedImage.scaleX))
+  const currentPhysicalW = selectedItem
+    ? pxToCm(Math.abs(selectedItem.width * selectedItem.scaleX))
     : 0
-  const currentPhysicalH = selectedImage
-    ? pxToCm(Math.abs(selectedImage.height * selectedImage.scaleY))
+  const currentPhysicalH = selectedItem
+    ? pxToCm(Math.abs(selectedItem.height * selectedItem.scaleY))
     : 0
 
   // Display values for numeric inputs (live during resize, editable during focus)
@@ -197,7 +276,7 @@ export default function App() {
       ? inputWidth
       : transformingInfo
         ? formatCm(transformingInfo.widthCm)
-        : selectedImage
+        : selectedItem
           ? formatCm(currentPhysicalW)
           : ''
 
@@ -206,7 +285,7 @@ export default function App() {
       ? inputHeight
       : transformingInfo
         ? formatCm(transformingInfo.heightCm)
-        : selectedImage
+        : selectedItem
           ? formatCm(currentPhysicalH)
           : ''
 
@@ -234,6 +313,7 @@ export default function App() {
                       const img = new window.Image()
                       img.onload = () => {
                         resolve({
+                          type: 'image',
                           id: item.id,
                           src: item.src,
                           image: img,
@@ -254,18 +334,30 @@ export default function App() {
                     })
                   })
                 )
+                const loadedTexts: CanvasTextItem[] = (p.texts || []).map(
+                  (item: SerializedTextItem) => ({
+                    type: 'text',
+                    ...item,
+                    rotation: item.rotation ?? 0,
+                    scaleX: item.scaleX ?? 1,
+                    scaleY: item.scaleY ?? 1,
+                  })
+                )
 
                 return {
                   id: p.id,
                   images: loadedImages.filter(
                     (img): img is CanvasImageItem => img !== null
                   ),
+                  texts: loadedTexts,
                 }
               })
             )
 
             if (isMounted) {
               setPages(loadedPages)
+              if (saved.pagePreset) setPagePreset(saved.pagePreset)
+              if (saved.orientation) setOrientation(saved.orientation)
               historyRef.current = { past: [], future: [] }
               if (typeof saved.activePageIndex === 'number') {
                 const targetIndex = Math.min(
@@ -310,12 +402,27 @@ export default function App() {
           scaleX: item.scaleX,
           scaleY: item.scaleY,
         })),
+        texts: page.texts.map((item) => ({
+          id: item.id,
+          text: item.text,
+          fontFamily: item.fontFamily,
+          fontSize: item.fontSize,
+          x: item.x,
+          y: item.y,
+          width: item.width,
+          height: item.height,
+          rotation: item.rotation,
+          scaleX: item.scaleX,
+          scaleY: item.scaleY,
+        })),
       }))
 
       saveProject({
         version: 2,
         updatedAt: Date.now(),
         activePageIndex: safePageIndex,
+        pagePreset,
+        orientation,
         pages: serializedPages,
       }).catch((err) => {
         console.error('Failed to auto-save project:', err)
@@ -323,7 +430,7 @@ export default function App() {
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [pages, safePageIndex, isLoaded])
+  }, [pages, safePageIndex, isLoaded, pagePreset, orientation])
 
   // 3. Attach Transformer to the selected node on the active page
   useEffect(() => {
@@ -342,33 +449,59 @@ export default function App() {
 
     transformerRef.current.nodes([])
     transformerRef.current.getLayer()?.batchDraw()
-  }, [selectedId, currentImages, isAspectLocked])
+  }, [selectedId, currentImages, currentTexts, isAspectLocked])
 
   // 4. Delete selected image logic
   const handleDeleteSelected = useCallback(() => {
     if (!selectedId) return
-    updateCurrentPageImages((prev) =>
-      prev.filter((img) => img.id !== selectedId)
-    )
+    if (selectedImage) {
+      updateCurrentPageImages((prev) =>
+        prev.filter((img) => img.id !== selectedId)
+      )
+    } else if (selectedText) {
+      updateCurrentPageTexts((prev) =>
+        prev.filter((text) => text.id !== selectedId)
+      )
+    }
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
-  }, [selectedId, updateCurrentPageImages])
+  }, [selectedId, selectedImage, selectedText, updateCurrentPageImages, updateCurrentPageTexts])
+
+  const handleAddText = useCallback(() => {
+    const width = Math.min(260, dimensions.width - 32)
+    const text: CanvasTextItem = {
+      type: 'text',
+      id: `text-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      text: 'Title',
+      fontFamily: 'Arial, Helvetica, sans-serif',
+      fontSize: 32,
+      x: Math.max(16, (dimensions.width - width) / 2),
+      y: Math.max(16, (dimensions.height - 48) / 2),
+      width,
+      height: 48,
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
+    }
+    updateCurrentPageTexts((prev) => [...prev, text])
+    setSelectedId(text.id)
+  }, [dimensions.height, dimensions.width, updateCurrentPageTexts])
 
   const handleDuplicateSelected = useCallback(() => {
     if (!selectedImage) return
     const duplicate: CanvasImageItem = {
       ...selectedImage,
       id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      x: Math.min(selectedImage.x + 20, A4_BASE_WIDTH - selectedImage.width * Math.abs(selectedImage.scaleX) - 16),
-      y: Math.min(selectedImage.y + 20, A4_BASE_HEIGHT - selectedImage.height * Math.abs(selectedImage.scaleY) - 16),
+      x: Math.min(selectedImage.x + 20, dimensions.width - selectedImage.width * Math.abs(selectedImage.scaleX) - 16),
+      y: Math.min(selectedImage.y + 20, dimensions.height - selectedImage.height * Math.abs(selectedImage.scaleY) - 16),
     }
     updateCurrentPageImages((prev) => {
       const index = prev.findIndex((image) => image.id === selectedImage.id)
       return [...prev.slice(0, index + 1), duplicate, ...prev.slice(index + 1)]
     })
     setSelectedId(duplicate.id)
-  }, [selectedImage, updateCurrentPageImages])
+  }, [selectedImage, updateCurrentPageImages, dimensions.width, dimensions.height])
 
   const handleBringForward = useCallback(() => {
     if (!selectedId) return
@@ -450,8 +583,8 @@ export default function App() {
 
     const effectiveW = clip.width * Math.abs(clip.scaleX)
     const effectiveH = clip.height * Math.abs(clip.scaleY)
-    newX = Math.min(Math.max(16, newX), A4_BASE_WIDTH - effectiveW - 16)
-    newY = Math.min(Math.max(16, newY), A4_BASE_HEIGHT - effectiveH - 16)
+    newX = Math.min(Math.max(16, newX), dimensions.width - effectiveW - 16)
+    newY = Math.min(Math.max(16, newY), dimensions.height - effectiveH - 16)
 
     const newImg = new window.Image()
     newImg.src = clip.src
@@ -459,6 +592,7 @@ export default function App() {
     const newId = `img-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
 
     const newItem: CanvasImageItem = {
+        type: 'image',
       id: newId,
       src: clip.src,
       image: newImg,
@@ -475,7 +609,7 @@ export default function App() {
     setSelectedId(newId)
     setTransformingInfo(null)
     setFocusedField(null)
-  }, [currentPage.id, updateCurrentPageImages])
+  }, [currentPage.id, updateCurrentPageImages, dimensions.width, dimensions.height])
 
   // 6. High-resolution print handler
   const handlePrint = async () => {
@@ -487,7 +621,14 @@ export default function App() {
 
     try {
       // Render every page offscreen at pixelRatio: 3 (~300 DPI)
-      const renderedSheets = await renderAllPagesForPrint(pages, 3)
+      const renderedSheets = await renderAllPagesForPrint(
+        pages.map((page) => ({
+          ...page,
+          width: dimensions.width,
+          height: dimensions.height,
+        })),
+        3
+      )
       setPrintSheets(renderedSheets)
 
       // Pre-decode all sheet images to ensure iOS Safari / WebKit has them in memory
@@ -600,8 +741,10 @@ export default function App() {
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
-    setPages([{ id: 'page-1', images: [] }])
+    setPages([{ id: 'page-1', images: [], texts: [] }])
     setActivePageIndex(0)
+    setPagePreset('A4')
+    setOrientation('portrait')
     setPrintSheets([])
     clipboardRef.current = null
     setHasClipboard(false)
@@ -609,12 +752,13 @@ export default function App() {
   }
 
   const handleClearPage = () => {
-    if (currentImages.length === 0) return
+    if (currentImages.length === 0 && currentTexts.length === 0) return
     const confirmed = window.confirm(
-      `Clear all ${currentImages.length} image${currentImages.length === 1 ? '' : 's'} from Page ${safePageIndex + 1}? Other pages will be preserved.`
+      `Clear all objects from Page ${safePageIndex + 1}? Other pages will be preserved.`
     )
     if (!confirmed) return
     updateCurrentPageImages([])
+    updateCurrentPageTexts([])
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
@@ -626,6 +770,7 @@ export default function App() {
     const newPage: CanvasPage = {
       id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       images: [],
+      texts: [],
     }
     setPages((prev) => [...prev, newPage])
     setActivePageIndex(pages.length)
@@ -644,10 +789,15 @@ export default function App() {
       ...img,
       id: `img-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
     }))
+    const clonedTexts: CanvasTextItem[] = current.texts.map((text, i) => ({
+      ...text,
+      id: `text-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
+    }))
 
     const newPage: CanvasPage = {
       id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       images: clonedImages,
+      texts: clonedTexts,
     }
 
     const nextPages = [...pages]
@@ -709,8 +859,8 @@ export default function App() {
       const availWidth = Math.max(rect.width - paddingX, 100)
       const availHeight = Math.max(rect.height - paddingY, 100)
 
-      const scaleX = availWidth / A4_BASE_WIDTH
-      const scaleY = availHeight / A4_BASE_HEIGHT
+      const scaleX = availWidth / dimensions.width
+      const scaleY = availHeight / dimensions.height
       const fittedScale = Math.min(scaleX, scaleY, 1.1)
       setFitScale(Math.max(fittedScale, 0.1))
     }
@@ -718,7 +868,7 @@ export default function App() {
     handleResize()
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [])
+  }, [dimensions.width, dimensions.height])
 
   // 11. Add Image handler supporting multiple files with staggered offset
   const handleAddImageClick = () => {
@@ -756,8 +906,8 @@ export default function App() {
 
       const newItems: CanvasImageItem[] = loaded.map(
         ({ dataUrl, img }, index) => {
-          const maxInitialWidth = A4_BASE_WIDTH * 0.5
-          const maxInitialHeight = A4_BASE_HEIGHT * 0.4
+          const maxInitialWidth = dimensions.width * 0.5
+          const maxInitialHeight = dimensions.height * 0.4
           let w = img.naturalWidth || img.width
           let h = img.naturalHeight || img.height
 
@@ -770,18 +920,19 @@ export default function App() {
           const offsetX = offsetIndex * OFFSET_STEP
           const offsetY = offsetIndex * OFFSET_STEP
 
-          const baseX = (A4_BASE_WIDTH - w) / 2
-          const baseY = (A4_BASE_HEIGHT - h) / 2
+          const baseX = (dimensions.width - w) / 2
+          const baseY = (dimensions.height - h) / 2
           const x = Math.min(
             Math.max(16, baseX + offsetX),
-            A4_BASE_WIDTH - w - 16
+            dimensions.width - w - 16
           )
           const y = Math.min(
             Math.max(16, baseY + offsetY),
-            A4_BASE_HEIGHT - h - 16
+            dimensions.height - h - 16
           )
 
           return {
+            type: 'image',
             id: `img-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 7)}`,
             src: dataUrl,
             image: img,
@@ -892,8 +1043,8 @@ export default function App() {
   }
 
   const visualScale = fitScale * zoomFactor
-  const pageWidth = Math.round(A4_BASE_WIDTH * visualScale)
-  const pageHeight = Math.round(A4_BASE_HEIGHT * visualScale)
+  const pageWidth = Math.round(dimensions.width * visualScale)
+  const pageHeight = Math.round(dimensions.height * visualScale)
   const handleZoomOut = () =>
     setZoomFactor((value) => Math.max(0.25, Math.round((value / 1.25) * 100) / 100))
   const handleZoomIn = () =>
@@ -940,8 +1091,8 @@ export default function App() {
             type="button"
             className="btn btn-secondary"
             onClick={handleClearPage}
-            disabled={currentImages.length === 0}
-            title="Clear every image from the current page"
+            disabled={currentImages.length === 0 && currentTexts.length === 0}
+            title="Clear every object from the current page"
           >
             <span className="btn-text">Clear Page</span>
           </button>
@@ -995,6 +1146,17 @@ export default function App() {
           </button>
 
           <div className="toolbar-divider" />
+          <div className="page-size-controls" aria-label="Project page size">
+            <select value={pagePreset} onChange={(e) => setPagePreset(e.target.value as PagePreset)} aria-label="Page size">
+              {Object.keys(PAGE_PRESETS).map((preset) => (
+                <option key={preset} value={preset}>{preset}</option>
+              ))}
+            </select>
+            <select value={orientation} onChange={(e) => setOrientation(e.target.value as PageOrientation)} aria-label="Orientation">
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </select>
+          </div>
 
           {/* Add Image button (supports multiple files) */}
           <button
@@ -1019,6 +1181,15 @@ export default function App() {
               <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
             </svg>
             <span className="btn-text">Add Image</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-add-text"
+            onClick={handleAddText}
+            title="Add a text box to the active page"
+          >
+            <span aria-hidden="true">T</span>
+            <span className="btn-text">Add Text</span>
           </button>
 
           {/* Cut button */}
@@ -1155,7 +1326,65 @@ export default function App() {
 
       {/* Properties sub-toolbar for physical measurements */}
       <nav className="properties-bar" aria-label="Physical measurements bar">
-        {selectedImage ? (
+        {selectedText ? (
+          <div className="properties-content text-properties">
+            <label htmlFor="text-content">Text</label>
+            <input
+              id="text-content"
+              className="text-property-input"
+              value={selectedText.text}
+              onChange={(e) =>
+                updateCurrentPageTexts((prev) =>
+                  prev.map((item) =>
+                    item.id === selectedText.id
+                      ? { ...item, text: e.target.value }
+                      : item
+                  )
+                )
+              }
+            />
+            <label htmlFor="text-font">Font</label>
+            <select
+              id="text-font"
+              value={selectedText.fontFamily}
+              onChange={(e) =>
+                updateCurrentPageTexts((prev) =>
+                  prev.map((item) =>
+                    item.id === selectedText.id
+                      ? { ...item, fontFamily: e.target.value }
+                      : item
+                  )
+                )
+              }
+            >
+              <option value="Arial, Helvetica, sans-serif">Arial</option>
+              <option value='"Arial Black", Arial, Helvetica, sans-serif'>
+                Arial Black
+              </option>
+            </select>
+            <label htmlFor="text-size">Size</label>
+            <input
+              id="text-size"
+              className="text-size-input"
+              type="number"
+              min="8"
+              max="300"
+              value={selectedText.fontSize}
+              onChange={(e) => {
+                const fontSize = Math.max(8, Number(e.target.value) || 8)
+                updateCurrentPageTexts((prev) =>
+                  prev.map((item) =>
+                    item.id === selectedText.id ? { ...item, fontSize } : item
+                  )
+                )
+              }}
+            />
+            <span className="input-suffix">px</span>
+            <button type="button" className="btn btn-compact-action btn-danger" onClick={handleDeleteSelected}>
+              Delete
+            </button>
+          </div>
+        ) : selectedImage ? (
           <div className="properties-content">
             <span className="properties-label">Size:</span>
 
@@ -1266,10 +1495,18 @@ export default function App() {
             <span className="hint-badge">
               Page {safePageIndex + 1} of {pages.length}
             </span>
-            <span>A4 • 21.0 × 29.7 cm</span>
+            <label htmlFor="page-preset">Page</label>
+            <select id="page-preset" value={pagePreset} onChange={(e) => setPagePreset(e.target.value as PagePreset)}>
+              {Object.keys(PAGE_PRESETS).map((preset) => <option key={preset} value={preset}>{preset}</option>)}
+            </select>
+            <select value={orientation} onChange={(e) => setOrientation(e.target.value as PageOrientation)} aria-label="Page orientation">
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </select>
+            <span>{pagePreset} • {formatCm(dimensions.widthCm)} × {formatCm(dimensions.heightCm)} cm</span>
             <span className="hint-divider">•</span>
             <span className="hint-sub">
-              Select an image to adjust physical dimensions or copy/cut
+              Select an object to adjust dimensions or copy/cut
             </span>
           </div>
         )}
@@ -1323,8 +1560,8 @@ export default function App() {
                 name="page-background"
                 x={0}
                 y={0}
-                width={A4_BASE_WIDTH}
-                height={A4_BASE_HEIGHT}
+                width={dimensions.width}
+                height={dimensions.height}
                 fill="#ffffff"
               />
 
@@ -1389,7 +1626,7 @@ export default function App() {
                     const logicalBottomY =
                       (clientRect.y + clientRect.height) / visualScale + 18
                     const badgeY =
-                      logicalBottomY > A4_BASE_HEIGHT - 20
+                      logicalBottomY > dimensions.height - 20
                         ? Math.max(16, clientRect.y / visualScale - 18)
                         : logicalBottomY
 
@@ -1415,6 +1652,61 @@ export default function App() {
                             }
                           : img
                       ),
+                      false
+                    )
+                    setTransformingInfo(null)
+                  }}
+                />
+              ))}
+              {currentTexts.map((item) => (
+                <Text
+                  id={item.id}
+                  key={item.id}
+                  text={item.text}
+                  x={item.x}
+                  y={item.y}
+                  width={item.width}
+                  height={item.height}
+                  scaleX={item.scaleX}
+                  scaleY={item.scaleY}
+                  rotation={item.rotation}
+                  fontFamily={item.fontFamily}
+                  fontSize={item.fontSize}
+                  fill="#0f172a"
+                  verticalAlign="middle"
+                  draggable
+                  onClick={(e) => { e.cancelBubble = true; setSelectedId(item.id) }}
+                  onTap={(e) => { e.cancelBubble = true; setSelectedId(item.id) }}
+                  onDragStart={() => { recordHistory(); setSelectedId(item.id) }}
+                  onDragEnd={(e) => {
+                    const node = e.target
+                    updateCurrentPageTexts((prev) =>
+                      prev.map((text) => text.id === item.id ? { ...text, x: Math.round(node.x()), y: Math.round(node.y()) } : text),
+                      false
+                    )
+                  }}
+                  onTransformStart={() => { recordHistory(); setSelectedId(item.id) }}
+                  onTransform={(e) => {
+                    const node = e.target
+                    const clientRect = node.getClientRect({ skipShadow: true })
+                    setTransformingInfo({
+                      widthCm: pxToCm(Math.abs(node.width() * node.scaleX())),
+                      heightCm: pxToCm(Math.abs(node.height() * node.scaleY())),
+                      x: (clientRect.x + clientRect.width / 2) / visualScale,
+                      y: Math.min(dimensions.height - 20, (clientRect.y + clientRect.height) / visualScale + 18),
+                    })
+                  }}
+                  onTransformEnd={(e) => {
+                    const node = e.target
+                    updateCurrentPageTexts((prev) =>
+                      prev.map((text) => text.id === item.id ? {
+                        ...text,
+                        x: Math.round(node.x()),
+                        y: Math.round(node.y()),
+                        scaleX: node.scaleX(),
+                        scaleY: node.scaleY(),
+                        rotation: Math.round(node.rotation() * 10) / 10,
+                      } : text),
                       false
                     )
                     setTransformingInfo(null)
@@ -1676,8 +1968,17 @@ export default function App() {
       {/* High-resolution multi-page printable document for window.print() */}
       <div className="print-document" aria-hidden="true">
         {printSheets.map((sheetUrl, index) => (
-          <div key={index} className="print-sheet">
-            <img src={sheetUrl} alt="" className="print-sheet-img" />
+          <div
+            key={index}
+            className="print-sheet"
+            style={{ width: `${dimensions.widthCm}cm`, height: `${dimensions.heightCm}cm` }}
+          >
+            <img
+              src={sheetUrl}
+              alt=""
+              className="print-sheet-img"
+              style={{ width: `${dimensions.widthCm}cm`, height: `${dimensions.heightCm}cm` }}
+            />
           </div>
         ))}
       </div>

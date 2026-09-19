@@ -75,6 +75,24 @@
   flex-shrink: 0;
 }
 
+.page-size-controls {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.page-size-controls select {
+  min-height: 34px;
+  max-width: 92px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 5px;
+}
+
 /* Base button */
 .btn {
   font-family: inherit;
@@ -313,6 +331,36 @@
   color: #64748b;
 }
 
+.text-properties {
+  flex-wrap: wrap;
+}
+
+.text-properties label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.text-property-input,
+.text-properties select,
+.text-size-input {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.text-property-input {
+  width: min(260px, 35vw);
+}
+
+.text-size-input {
+  width: 64px;
+}
+
 .hint-badge {
   background-color: #eff6ff;
   color: #2563eb;
@@ -520,7 +568,7 @@
    PRINT STYLESHEET (A4 Multi-Page Output)
    ========================================= */
 @page {
-  size: A4 portrait;
+  size: auto;
   margin: 0;
 }
 
@@ -553,8 +601,6 @@
   }
 
   .print-sheet {
-    width: 210mm !important;
-    height: 297mm !important;
     page-break-after: always !important;
     break-after: page !important;
     page-break-inside: avoid !important;
@@ -575,8 +621,6 @@
   }
 
   .print-sheet-img {
-    width: 210mm !important;
-    height: 297mm !important;
     display: block !important;
     object-fit: fill !important;
     margin: 0 !important;
@@ -631,6 +675,19 @@
 
   .properties-content {
     gap: 6px;
+  }
+
+  .text-property-input {
+    width: min(170px, 45vw);
+  }
+
+  .text-properties {
+    gap: 4px;
+    justify-content: flex-start;
+  }
+
+  .text-properties label {
+    display: none;
   }
 
   .properties-label {
@@ -797,6 +854,13 @@
 
   .toolbar-actions > button:nth-of-type(n + 7) {
     display: none;
+  }
+
+  .page-size-controls select {
+    min-height: 40px;
+    max-width: 68px;
+    padding: 3px;
+    font-size: 11px;
   }
 
   .properties-bar {
