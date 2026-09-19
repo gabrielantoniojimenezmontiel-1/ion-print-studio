@@ -142,15 +142,23 @@
   border: 1px solid #bbf7d0;
 }
 
-.btn-print:hover {
+.btn-print:hover:not(:disabled) {
   background-color: #dcfce7;
   border-color: #86efac;
   color: #14532d;
 }
 
-.btn-print:active {
+.btn-print:active:not(:disabled) {
   background-color: #bbf7d0;
   transform: translateY(1px);
+}
+
+.btn-print:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  border-color: #e2e8f0;
+  background-color: #f8fafc;
+  color: #94a3b8;
 }
 
 /* Danger button (Delete) */
@@ -462,8 +470,48 @@
   background-color: #f8fafc;
 }
 
+/* Preparing print loading overlay */
+.print-loading-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.print-loading-card {
+  background: #ffffff;
+  padding: 16px 24px;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.print-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: print-spin 0.8s linear infinite;
+}
+
+@keyframes print-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Hidden on screen; rendered during print */
-.print-container {
+.print-document {
   display: none;
 }
 
@@ -476,11 +524,12 @@
 }
 
 @media print {
-  /* Hide all UI toolbars and navigation */
+  /* Hide all UI chrome */
   .top-toolbar,
   .properties-bar,
   .workspace,
-  .page-navigation-bar {
+  .page-navigation-bar,
+  .print-loading-overlay {
     display: none !important;
   }
 
@@ -489,19 +538,20 @@
   #root,
   .app-container {
     height: auto !important;
+    min-height: auto !important;
     overflow: visible !important;
-    background: transparent !important;
+    background: #ffffff !important;
     margin: 0 !important;
     padding: 0 !important;
   }
 
-  .print-container {
+  .print-document {
     display: block !important;
     margin: 0 !important;
     padding: 0 !important;
   }
 
-  .print-page {
+  .print-sheet {
     width: 210mm !important;
     height: 297mm !important;
     page-break-after: always !important;
@@ -509,22 +559,25 @@
     position: relative !important;
     overflow: hidden !important;
     background-color: #ffffff !important;
-    box-sizing: border-box !important;
     margin: 0 !important;
     padding: 0 !important;
+    box-sizing: border-box !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  .print-page:last-child {
+  .print-sheet:last-child {
     page-break-after: avoid !important;
     break-after: avoid !important;
   }
 
-  .print-image {
-    position: absolute !important;
+  .print-sheet-img {
+    width: 210mm !important;
+    height: 297mm !important;
     display: block !important;
-    pointer-events: none !important;
+    object-fit: fill !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 }
 

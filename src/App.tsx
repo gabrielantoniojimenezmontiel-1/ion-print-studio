@@ -22,6 +22,7 @@ import {
   cmToPx,
   formatCm,
 } from './units'
+import { renderAllPagesForPrint } from './printRenderer'
 import './App.css'
 
 interface CanvasImageItem {
@@ -71,6 +72,8 @@ export default function App() {
   const [isLoaded, setIsLoaded] = useState(false)
   const [isAspectLocked, setIsAspectLocked] = useState(true)
   const [hasClipboard, setHasClipboard] = useState(false)
+  const [isPrinting, setIsPrinting] = useState(false)
+  const [printSheets, setPrintSheets] = useState<string[]>([])
   const [focusedField, setFocusedField] = useState<'width' | 'height' | null>(
     null
   )
@@ -371,12 +374,32 @@ export default function App() {
     setFocusedField(null)
   }, [currentPage.id, updateCurrentPageImages])
 
-  // 6. Print project
-  const handlePrint = () => {
+  // 6. High-resolution print handler
+  const handlePrint = async () => {
+    if (isPrinting) return
+    setIsPrinting(true)
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
-    window.print()
+
+    try {
+      // Render every page offscreen at pixelRatio: 3 (~300 DPI)
+      const renderedSheets = await renderAllPagesForPrint(pages, 3)
+      setPrintSheets(renderedSheets)
+
+      // Brief pause to allow the print sheets to mount in DOM
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      window.print()
+    } catch (err) {
+      console.error('Print generation failed:', err)
+      alert(
+        'Failed to prepare pages for printing: ' +
+          (err instanceof Error ? err.message : 'Unknown error')
+      )
+    } finally {
+      setIsPrinting(false)
+    }
   }
 
   // 7. Desktop & macOS keyboard listener for Shortcuts (Delete, Ctrl/Cmd+C, Ctrl/Cmd+V, Ctrl/Cmd+X)
@@ -442,6 +465,7 @@ export default function App() {
     setFocusedField(null)
     setPages([{ id: 'page-1', images: [] }])
     setActivePageIndex(0)
+    setPrintSheets([])
     clipboardRef.current = null
     setHasClipboard(false)
     await clearSavedProject()
@@ -759,7 +783,8 @@ export default function App() {
             type="button"
             className="btn btn-print"
             onClick={handlePrint}
-            title="Print all project pages (AirPrint on iOS / system print dialog)"
+            disabled={isPrinting}
+            title="Print all project pages in high resolution (AirPrint on iOS)"
           >
             <svg
               width="14"
@@ -776,7 +801,9 @@ export default function App() {
               <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
               <rect x="6" y="14" width="12" height="8" />
             </svg>
-            <span className="btn-text">Print</span>
+            <span className="btn-text">
+              {isPrinting ? 'Preparing...' : 'Print'}
+            </span>
           </button>
 
           <div className="toolbar-divider" />
@@ -922,8 +949,6 @@ export default function App() {
               <path d="M3 6h18" />
               <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
               <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-              <line x1="10" y1="11" x2="10" y2="17" />
-              <line x1="14" y1="11" x2="14" y2="17" />
             </svg>
             <span className="btn-text">Delete</span>
           </button>
@@ -1384,27 +1409,26 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Multi-page printable layout for window.print() / AirPrint */}
-      <div className="print-container" aria-hidden="true">
-        {pages.map((page, pIndex) => (
-          <section key={page.id || pIndex} className="print-page">
-            {page.images.map((img) => (
-              <img
-                key={img.id}
-                src={img.src}
-                alt=""
-                className="print-image"
-                style={{
-                  left: `${(img.x / A4_BASE_WIDTH) * 210}mm`,
-                  top: `${(img.y / A4_BASE_HEIGHT) * 297}mm`,
-                  width: `${((img.width * img.scaleX) / A4_BASE_WIDTH) * 210}mm`,
-                  height: `${((img.height * img.scaleY) / A4_BASE_HEIGHT) * 297}mm`,
-                  transform: `rotate(${img.rotation}deg)`,
-                  transformOrigin: '0 0',
-                }}
-              />
-            ))}
-          </section>
+      {/* Preparing print temporary state overlay */}
+      {isPrinting && (
+        <div
+          className="print-loading-overlay"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="print-loading-card">
+            <div className="print-spinner" />
+            <span>Preparing print...</span>
+          </div>
+        </div>
+      )}
+
+      {/* High-resolution multi-page printable document for window.print() */}
+      <div className="print-document" aria-hidden="true">
+        {printSheets.map((sheetUrl, index) => (
+          <div key={index} className="print-sheet">
+            <img src={sheetUrl} alt="" className="print-sheet-img" />
+          </div>
         ))}
       </div>
     </div>
