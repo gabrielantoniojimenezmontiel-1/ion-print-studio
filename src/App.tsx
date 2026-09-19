@@ -49,6 +49,18 @@ interface TransformingInfo {
   y: number
 }
 
+interface ClipboardItem {
+  src: string
+  width: number
+  height: number
+  scaleX: number
+  scaleY: number
+  rotation: number
+  x: number
+  y: number
+  sourcePageId: string
+}
+
 export default function App() {
   const [scale, setScale] = useState(1)
   const [pages, setPages] = useState<CanvasPage[]>([
@@ -58,6 +70,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [isAspectLocked, setIsAspectLocked] = useState(true)
+  const [hasClipboard, setHasClipboard] = useState(false)
   const [focusedField, setFocusedField] = useState<'width' | 'height' | null>(
     null
   )
@@ -69,6 +82,8 @@ export default function App() {
   const workspaceRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
+  const clipboardRef = useRef<ClipboardItem | null>(null)
+  const pasteCountRef = useRef<number>(0)
 
   // Ensure active page index stays strictly within bounds
   const safePageIndex = Math.min(
@@ -271,26 +286,151 @@ export default function App() {
     setFocusedField(null)
   }, [selectedId, updateCurrentPageImages])
 
-  // 5. Desktop keyboard listener for Delete / Backspace
+  // 5. Copy, Cut, Paste logic
+  const handleCopy = useCallback(() => {
+    if (!selectedImage) return
+    clipboardRef.current = {
+      src: selectedImage.src,
+      width: selectedImage.width,
+      height: selectedImage.height,
+      scaleX: selectedImage.scaleX,
+      scaleY: selectedImage.scaleY,
+      rotation: selectedImage.rotation,
+      x: selectedImage.x,
+      y: selectedImage.y,
+      sourcePageId: currentPage.id,
+    }
+    pasteCountRef.current = 0
+    setHasClipboard(true)
+  }, [selectedImage, currentPage.id])
+
+  const handleCut = useCallback(() => {
+    if (!selectedImage) return
+    clipboardRef.current = {
+      src: selectedImage.src,
+      width: selectedImage.width,
+      height: selectedImage.height,
+      scaleX: selectedImage.scaleX,
+      scaleY: selectedImage.scaleY,
+      rotation: selectedImage.rotation,
+      x: selectedImage.x,
+      y: selectedImage.y,
+      sourcePageId: currentPage.id,
+    }
+    pasteCountRef.current = 0
+    setHasClipboard(true)
+
+    // Remove from current page
+    updateCurrentPageImages((prev) =>
+      prev.filter((img) => img.id !== selectedImage.id)
+    )
+    setSelectedId(null)
+    setTransformingInfo(null)
+    setFocusedField(null)
+  }, [selectedImage, currentPage.id, updateCurrentPageImages])
+
+  const handlePaste = useCallback(() => {
+    const clip = clipboardRef.current
+    if (!clip) return
+
+    pasteCountRef.current += 1
+    const offset =
+      currentPage.id === clip.sourcePageId
+        ? (pasteCountRef.current % 10) * 20
+        : ((pasteCountRef.current - 1) % 10) * 20
+
+    let newX = clip.x + offset
+    let newY = clip.y + offset
+
+    const effectiveW = clip.width * Math.abs(clip.scaleX)
+    const effectiveH = clip.height * Math.abs(clip.scaleY)
+    newX = Math.min(Math.max(16, newX), A4_BASE_WIDTH - effectiveW - 16)
+    newY = Math.min(Math.max(16, newY), A4_BASE_HEIGHT - effectiveH - 16)
+
+    const newImg = new window.Image()
+    newImg.src = clip.src
+
+    const newId = `img-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+
+    const newItem: CanvasImageItem = {
+      id: newId,
+      src: clip.src,
+      image: newImg,
+      x: Math.round(newX),
+      y: Math.round(newY),
+      width: clip.width,
+      height: clip.height,
+      scaleX: clip.scaleX,
+      scaleY: clip.scaleY,
+      rotation: clip.rotation,
+    }
+
+    updateCurrentPageImages((prev) => [...prev, newItem])
+    setSelectedId(newId)
+    setTransformingInfo(null)
+    setFocusedField(null)
+  }, [currentPage.id, updateCurrentPageImages])
+
+  // 6. Print project
+  const handlePrint = () => {
+    setSelectedId(null)
+    setTransformingInfo(null)
+    setFocusedField(null)
+    window.print()
+  }
+
+  // 7. Desktop & macOS keyboard listener for Shortcuts (Delete, Ctrl/Cmd+C, Ctrl/Cmd+V, Ctrl/Cmd+X)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || '').toUpperCase()
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
+        return
+      }
+
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey
+
+      // Delete / Backspace
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        const activeTag = (document.activeElement?.tagName || '').toUpperCase()
-        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
-          return
-        }
         if (selectedId) {
           e.preventDefault()
           handleDeleteSelected()
         }
+        return
+      }
+
+      // Ctrl+C / Cmd+C (Copy)
+      if (isCtrlOrCmd && (e.key === 'c' || e.key === 'C')) {
+        if (selectedId) {
+          e.preventDefault()
+          handleCopy()
+        }
+        return
+      }
+
+      // Ctrl+V / Cmd+V (Paste)
+      if (isCtrlOrCmd && (e.key === 'v' || e.key === 'V')) {
+        if (clipboardRef.current) {
+          e.preventDefault()
+          handlePaste()
+        }
+        return
+      }
+
+      // Ctrl+X / Cmd+X (Cut)
+      if (isCtrlOrCmd && (e.key === 'x' || e.key === 'X')) {
+        if (selectedId) {
+          e.preventDefault()
+          handleCut()
+        }
+        return
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, handleDeleteSelected])
+  }, [selectedId, handleDeleteSelected, handleCopy, handlePaste, handleCut])
 
-  // 6. Manual Reset ("New Project")
+  // 8. Manual Reset ("New Project")
   const handleNewProject = async () => {
     const confirmed = window.confirm(
       'Start a new project? This will clear all pages and elements from your canvas.'
@@ -302,10 +442,12 @@ export default function App() {
     setFocusedField(null)
     setPages([{ id: 'page-1', images: [] }])
     setActivePageIndex(0)
+    clipboardRef.current = null
+    setHasClipboard(false)
     await clearSavedProject()
   }
 
-  // 7. Multi-page controls
+  // 9. Multi-page controls
   const handleAddPage = () => {
     const newPage: CanvasPage = {
       id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -381,7 +523,7 @@ export default function App() {
     }
   }
 
-  // 8. Responsive scale calculation to fit A4 page on screen
+  // 10. Responsive scale calculation to fit A4 page on screen
   useEffect(() => {
     const handleResize = () => {
       if (!workspaceRef.current) return
@@ -402,7 +544,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // 9. Add Image handler supporting multiple files with staggered offset
+  // 11. Add Image handler supporting multiple files with staggered offset
   const handleAddImageClick = () => {
     fileInputRef.current?.click()
   }
@@ -490,7 +632,7 @@ export default function App() {
     e.target.value = ''
   }
 
-  // 10. Manual width and height input handlers
+  // 12. Manual width and height input handlers
   const handleWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
     setInputWidth(val)
@@ -559,7 +701,7 @@ export default function App() {
     setFocusedField(null)
   }
 
-  // 11. Deselection when clicking empty space
+  // 13. Deselection when clicking empty space
   const handleCanvasDeselect = (
     e: Konva.KonvaEventObject<MouseEvent | TouchEvent>
   ) => {
@@ -591,10 +733,11 @@ export default function App() {
             type="button"
             className="btn btn-secondary"
             onClick={handleNewProject}
+            title="Start a new blank project"
           >
             <svg
-              width="15"
-              height="15"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -608,18 +751,46 @@ export default function App() {
               <line x1="12" y1="18" x2="12" y2="12" />
               <line x1="9" y1="15" x2="15" y2="15" />
             </svg>
-            New Project
+            <span className="btn-text">New Project</span>
           </button>
+
+          {/* Print Project button */}
+          <button
+            type="button"
+            className="btn btn-print"
+            onClick={handlePrint}
+            title="Print all project pages (AirPrint on iOS / system print dialog)"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="6 9 6 2 18 2 18 9" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="8" />
+            </svg>
+            <span className="btn-text">Print</span>
+          </button>
+
+          <div className="toolbar-divider" />
 
           {/* Add Image button (supports multiple files) */}
           <button
             type="button"
             className="btn btn-primary"
             onClick={handleAddImageClick}
+            title="Import one or more images onto the active page"
           >
             <svg
-              width="15"
-              height="15"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -632,7 +803,97 @@ export default function App() {
               <circle cx="9" cy="9" r="2" />
               <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
             </svg>
-            Add Image
+            <span className="btn-text">Add Image</span>
+          </button>
+
+          {/* Cut button */}
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleCut}
+            disabled={!selectedId}
+            title={
+              selectedId
+                ? 'Cut selected image (Ctrl+X / Cmd+X)'
+                : 'Select an image to cut'
+            }
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="6" cy="6" r="3" />
+              <circle cx="6" cy="18" r="3" />
+              <line x1="20" y1="4" x2="8.12" y2="15.88" />
+              <line x1="14.47" y1="14.48" x2="20" y2="20" />
+              <line x1="8.12" y1="8.12" x2="12" y2="12" />
+            </svg>
+            <span className="btn-text">Cut</span>
+          </button>
+
+          {/* Copy button */}
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleCopy}
+            disabled={!selectedId}
+            title={
+              selectedId
+                ? 'Copy selected image (Ctrl+C / Cmd+C)'
+                : 'Select an image to copy'
+            }
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            <span className="btn-text">Copy</span>
+          </button>
+
+          {/* Paste button */}
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handlePaste}
+            disabled={!hasClipboard}
+            title={
+              hasClipboard
+                ? 'Paste copied image onto active page (Ctrl+V / Cmd+V)'
+                : 'Clipboard is empty'
+            }
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+              <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+            </svg>
+            <span className="btn-text">Paste</span>
           </button>
 
           {/* Delete selected image button */}
@@ -642,12 +903,14 @@ export default function App() {
             onClick={handleDeleteSelected}
             disabled={!selectedId}
             title={
-              selectedId ? 'Delete selected image' : 'Select an image to delete'
+              selectedId
+                ? 'Delete selected image (Delete / Backspace)'
+                : 'Select an image to delete'
             }
           >
             <svg
-              width="15"
-              height="15"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -662,7 +925,7 @@ export default function App() {
               <line x1="10" y1="11" x2="10" y2="17" />
               <line x1="14" y1="11" x2="14" y2="17" />
             </svg>
-            Delete
+            <span className="btn-text">Delete</span>
           </button>
 
           {/* Hidden multiple file input */}
@@ -772,11 +1035,13 @@ export default function App() {
           </div>
         ) : (
           <div className="properties-hint">
-            <span className="hint-badge">Page {safePageIndex + 1} of {pages.length}</span>
+            <span className="hint-badge">
+              Page {safePageIndex + 1} of {pages.length}
+            </span>
             <span>A4 • 21.0 × 29.7 cm</span>
             <span className="hint-divider">•</span>
             <span className="hint-sub">
-              Select an image to adjust its physical dimensions
+              Select an image to adjust physical dimensions or copy/cut
             </span>
           </div>
         )}
@@ -1118,6 +1383,30 @@ export default function App() {
           </button>
         </div>
       </footer>
+
+      {/* Multi-page printable layout for window.print() / AirPrint */}
+      <div className="print-container" aria-hidden="true">
+        {pages.map((page, pIndex) => (
+          <section key={page.id || pIndex} className="print-page">
+            {page.images.map((img) => (
+              <img
+                key={img.id}
+                src={img.src}
+                alt=""
+                className="print-image"
+                style={{
+                  left: `${(img.x / A4_BASE_WIDTH) * 210}mm`,
+                  top: `${(img.y / A4_BASE_HEIGHT) * 297}mm`,
+                  width: `${((img.width * img.scaleX) / A4_BASE_WIDTH) * 210}mm`,
+                  height: `${((img.height * img.scaleY) / A4_BASE_HEIGHT) * 297}mm`,
+                  transform: `rotate(${img.rotation}deg)`,
+                  transformOrigin: '0 0',
+                }}
+              />
+            ))}
+          </section>
+        ))}
+      </div>
     </div>
   )
 }
