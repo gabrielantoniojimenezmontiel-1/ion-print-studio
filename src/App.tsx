@@ -37,6 +37,11 @@ interface CanvasImageItem {
   scaleY: number
 }
 
+interface CanvasPage {
+  id: string
+  images: CanvasImageItem[]
+}
+
 interface TransformingInfo {
   widthCm: number
   heightCm: number
@@ -46,20 +51,54 @@ interface TransformingInfo {
 
 export default function App() {
   const [scale, setScale] = useState(1)
-  const [images, setImages] = useState<CanvasImageItem[]>([])
+  const [pages, setPages] = useState<CanvasPage[]>([
+    { id: 'page-1', images: [] },
+  ])
+  const [activePageIndex, setActivePageIndex] = useState<number>(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [isAspectLocked, setIsAspectLocked] = useState(true)
-  const [focusedField, setFocusedField] = useState<'width' | 'height' | null>(null)
+  const [focusedField, setFocusedField] = useState<'width' | 'height' | null>(
+    null
+  )
   const [inputWidth, setInputWidth] = useState('')
   const [inputHeight, setInputHeight] = useState('')
-  const [transformingInfo, setTransformingInfo] = useState<TransformingInfo | null>(null)
+  const [transformingInfo, setTransformingInfo] =
+    useState<TransformingInfo | null>(null)
 
   const workspaceRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
 
-  const selectedImage = images.find((img) => img.id === selectedId) || null
+  // Ensure active page index stays strictly within bounds
+  const safePageIndex = Math.min(
+    Math.max(0, activePageIndex),
+    Math.max(0, pages.length - 1)
+  )
+  const currentPage = pages[safePageIndex] || { id: 'default', images: [] }
+  const currentImages = currentPage.images
+
+  const selectedImage =
+    currentImages.find((img) => img.id === selectedId) || null
+
+  // Helper to update only the active page's images
+  const updateCurrentPageImages = useCallback(
+    (
+      updater:
+        | CanvasImageItem[]
+        | ((prev: CanvasImageItem[]) => CanvasImageItem[])
+    ) => {
+      setPages((prevPages) =>
+        prevPages.map((page, idx) => {
+          if (idx !== safePageIndex) return page
+          const nextImages =
+            typeof updater === 'function' ? updater(page.images) : updater
+          return { ...page, images: nextImages }
+        })
+      )
+    },
+    [safePageIndex]
+  )
 
   // Derived current physical measurements
   const currentPhysicalW = selectedImage
@@ -88,46 +127,70 @@ export default function App() {
           ? formatCm(currentPhysicalH)
           : ''
 
-  // 1. Auto-restore project from IndexedDB on startup
+  // 1. Auto-restore project from IndexedDB on startup (supports all pages)
   useEffect(() => {
     let isMounted = true
 
     async function restoreProject() {
       try {
         const saved = await loadProject()
-        if (saved && saved.images && saved.images.length > 0 && isMounted) {
-          const loadedImages = await Promise.all(
-            saved.images.map((item: SerializedImageItem) => {
-              return new Promise<CanvasImageItem | null>((resolve) => {
-                const img = new window.Image()
-                img.onload = () => {
-                  resolve({
-                    id: item.id,
-                    src: item.src,
-                    image: img,
-                    x: item.x,
-                    y: item.y,
-                    width: item.width,
-                    height: item.height,
-                    rotation: item.rotation ?? 0,
-                    scaleX: item.scaleX ?? 1,
-                    scaleY: item.scaleY ?? 1,
-                  })
-                }
-                img.onerror = () => {
-                  console.warn('Failed to load saved image:', item.id)
-                  resolve(null)
-                }
-                img.src = item.src
-              })
-            })
-          )
+        if (saved && isMounted) {
+          const pagesToLoad =
+            saved.pages && saved.pages.length > 0
+              ? saved.pages
+              : saved.images
+                ? [{ id: 'page-default', images: saved.images }]
+                : []
 
-          if (isMounted) {
-            const valid = loadedImages.filter(
-              (img): img is CanvasImageItem => img !== null
+          if (pagesToLoad.length > 0) {
+            const loadedPages: CanvasPage[] = await Promise.all(
+              pagesToLoad.map(async (p) => {
+                const loadedImages = await Promise.all(
+                  p.images.map((item: SerializedImageItem) => {
+                    return new Promise<CanvasImageItem | null>((resolve) => {
+                      const img = new window.Image()
+                      img.onload = () => {
+                        resolve({
+                          id: item.id,
+                          src: item.src,
+                          image: img,
+                          x: item.x,
+                          y: item.y,
+                          width: item.width,
+                          height: item.height,
+                          rotation: item.rotation ?? 0,
+                          scaleX: item.scaleX ?? 1,
+                          scaleY: item.scaleY ?? 1,
+                        })
+                      }
+                      img.onerror = () => {
+                        console.warn('Failed to load saved image:', item.id)
+                        resolve(null)
+                      }
+                      img.src = item.src
+                    })
+                  })
+                )
+
+                return {
+                  id: p.id,
+                  images: loadedImages.filter(
+                    (img): img is CanvasImageItem => img !== null
+                  ),
+                }
+              })
             )
-            setImages(valid)
+
+            if (isMounted) {
+              setPages(loadedPages)
+              if (typeof saved.activePageIndex === 'number') {
+                const targetIndex = Math.min(
+                  Math.max(0, saved.activePageIndex),
+                  loadedPages.length - 1
+                )
+                setActivePageIndex(targetIndex)
+              }
+            }
           }
         }
       } catch (err) {
@@ -145,36 +208,40 @@ export default function App() {
     }
   }, [])
 
-  // 2. Auto-save project locally to IndexedDB whenever images change
+  // 2. Auto-save project locally to IndexedDB whenever pages or active page change
   useEffect(() => {
     if (!isLoaded) return // Do not overwrite before initial load finishes
 
     const timer = setTimeout(() => {
-      const serialized: SerializedImageItem[] = images.map((item) => ({
-        id: item.id,
-        src: item.src,
-        x: item.x,
-        y: item.y,
-        width: item.width,
-        height: item.height,
-        rotation: item.rotation,
-        scaleX: item.scaleX,
-        scaleY: item.scaleY,
+      const serializedPages = pages.map((page) => ({
+        id: page.id,
+        images: page.images.map((item) => ({
+          id: item.id,
+          src: item.src,
+          x: item.x,
+          y: item.y,
+          width: item.width,
+          height: item.height,
+          rotation: item.rotation,
+          scaleX: item.scaleX,
+          scaleY: item.scaleY,
+        })),
       }))
 
       saveProject({
-        version: 1,
+        version: 2,
         updatedAt: Date.now(),
-        images: serialized,
+        activePageIndex: safePageIndex,
+        pages: serializedPages,
       }).catch((err) => {
         console.error('Failed to auto-save project:', err)
       })
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [images, isLoaded])
+  }, [pages, safePageIndex, isLoaded])
 
-  // 3. Attach Transformer to the selected node
+  // 3. Attach Transformer to the selected node on the active page
   useEffect(() => {
     if (!transformerRef.current) return
     const stage = transformerRef.current.getStage()
@@ -191,16 +258,18 @@ export default function App() {
 
     transformerRef.current.nodes([])
     transformerRef.current.getLayer()?.batchDraw()
-  }, [selectedId, images, isAspectLocked])
+  }, [selectedId, currentImages, isAspectLocked])
 
   // 4. Delete selected image logic
   const handleDeleteSelected = useCallback(() => {
     if (!selectedId) return
-    setImages((prev) => prev.filter((img) => img.id !== selectedId))
+    updateCurrentPageImages((prev) =>
+      prev.filter((img) => img.id !== selectedId)
+    )
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
-  }, [selectedId])
+  }, [selectedId, updateCurrentPageImages])
 
   // 5. Desktop keyboard listener for Delete / Backspace
   useEffect(() => {
@@ -224,24 +293,101 @@ export default function App() {
   // 6. Manual Reset ("New Project")
   const handleNewProject = async () => {
     const confirmed = window.confirm(
-      'Start a new project? This will clear all elements from your canvas.'
+      'Start a new project? This will clear all pages and elements from your canvas.'
     )
     if (!confirmed) return
 
     setSelectedId(null)
-    setImages([])
     setTransformingInfo(null)
     setFocusedField(null)
+    setPages([{ id: 'page-1', images: [] }])
+    setActivePageIndex(0)
     await clearSavedProject()
   }
 
-  // 7. Responsive scale calculation to fit A4 page on screen
+  // 7. Multi-page controls
+  const handleAddPage = () => {
+    const newPage: CanvasPage = {
+      id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      images: [],
+    }
+    setPages((prev) => [...prev, newPage])
+    setActivePageIndex(pages.length)
+    setSelectedId(null)
+    setTransformingInfo(null)
+    setFocusedField(null)
+  }
+
+  const handleDuplicatePage = () => {
+    const current = pages[safePageIndex]
+    if (!current) return
+
+    // Deep-clone images with fresh unique IDs so both pages remain strictly independent
+    const clonedImages: CanvasImageItem[] = current.images.map((img, i) => ({
+      ...img,
+      id: `img-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
+    }))
+
+    const newPage: CanvasPage = {
+      id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      images: clonedImages,
+    }
+
+    const nextPages = [...pages]
+    nextPages.splice(safePageIndex + 1, 0, newPage)
+    setPages(nextPages)
+    setActivePageIndex(safePageIndex + 1)
+    setSelectedId(null)
+    setTransformingInfo(null)
+    setFocusedField(null)
+  }
+
+  const handleDeletePage = () => {
+    if (pages.length <= 1) {
+      alert('The project must retain at least one page.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Delete Page ${safePageIndex + 1}? This action cannot be undone.`
+    )
+    if (!confirmed) return
+
+    const nextPages = pages.filter((_, idx) => idx !== safePageIndex)
+    setPages(nextPages)
+    setActivePageIndex((prev) =>
+      Math.max(0, Math.min(prev, nextPages.length - 1))
+    )
+    setSelectedId(null)
+    setTransformingInfo(null)
+    setFocusedField(null)
+  }
+
+  const handlePrevPage = () => {
+    if (safePageIndex > 0) {
+      setActivePageIndex(safePageIndex - 1)
+      setSelectedId(null)
+      setTransformingInfo(null)
+      setFocusedField(null)
+    }
+  }
+
+  const handleNextPage = () => {
+    if (safePageIndex < pages.length - 1) {
+      setActivePageIndex(safePageIndex + 1)
+      setSelectedId(null)
+      setTransformingInfo(null)
+      setFocusedField(null)
+    }
+  }
+
+  // 8. Responsive scale calculation to fit A4 page on screen
   useEffect(() => {
     const handleResize = () => {
       if (!workspaceRef.current) return
       const rect = workspaceRef.current.getBoundingClientRect()
-      const paddingX = window.innerWidth <= 640 ? 20 : 40
-      const paddingY = window.innerWidth <= 640 ? 20 : 40
+      const paddingX = window.innerWidth <= 640 ? 16 : 36
+      const paddingY = window.innerWidth <= 640 ? 16 : 36
       const availWidth = Math.max(rect.width - paddingX, 100)
       const availHeight = Math.max(rect.height - paddingY, 100)
 
@@ -256,7 +402,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // 8. Add Image handler supporting multiple files with staggered offset
+  // 9. Add Image handler supporting multiple files with staggered offset
   const handleAddImageClick = () => {
     fileInputRef.current?.click()
   }
@@ -288,7 +434,7 @@ export default function App() {
       )
 
       const OFFSET_STEP = 24
-      const currentCount = images.length
+      const currentCount = currentImages.length
 
       const newItems: CanvasImageItem[] = loaded.map(
         ({ dataUrl, img }, index) => {
@@ -332,7 +478,7 @@ export default function App() {
         }
       )
 
-      setImages((prev) => [...prev, ...newItems])
+      updateCurrentPageImages((prev) => [...prev, ...newItems])
       // Select the last imported image
       if (newItems.length > 0) {
         setSelectedId(newItems[newItems.length - 1].id)
@@ -344,14 +490,14 @@ export default function App() {
     e.target.value = ''
   }
 
-  // 9. Manual width and height input handlers
+  // 10. Manual width and height input handlers
   const handleWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
     setInputWidth(val)
     const num = parseFloat(val)
 
     if (!isNaN(num) && num > 0 && selectedId) {
-      setImages((prev) =>
+      updateCurrentPageImages((prev) =>
         prev.map((img) => {
           if (img.id !== selectedId) return img
           const newLogicalW = cmToPx(num)
@@ -385,7 +531,7 @@ export default function App() {
     const num = parseFloat(val)
 
     if (!isNaN(num) && num > 0 && selectedId) {
-      setImages((prev) =>
+      updateCurrentPageImages((prev) =>
         prev.map((img) => {
           if (img.id !== selectedId) return img
           const newLogicalH = cmToPx(num)
@@ -413,7 +559,7 @@ export default function App() {
     setFocusedField(null)
   }
 
-  // 10. Deselection when clicking empty space
+  // 11. Deselection when clicking empty space
   const handleCanvasDeselect = (
     e: Konva.KonvaEventObject<MouseEvent | TouchEvent>
   ) => {
@@ -489,7 +635,7 @@ export default function App() {
             Add Image
           </button>
 
-          {/* Delete button */}
+          {/* Delete selected image button */}
           <button
             type="button"
             className="btn btn-danger"
@@ -626,8 +772,8 @@ export default function App() {
           </div>
         ) : (
           <div className="properties-hint">
-            <span className="hint-badge">A4 Page</span>
-            <span>21.0 × 29.7 cm</span>
+            <span className="hint-badge">Page {safePageIndex + 1} of {pages.length}</span>
+            <span>A4 • 21.0 × 29.7 cm</span>
             <span className="hint-divider">•</span>
             <span className="hint-sub">
               Select an image to adjust its physical dimensions
@@ -675,8 +821,8 @@ export default function App() {
                 fill="#ffffff"
               />
 
-              {/* Imported canvas images */}
-              {images.map((item) => (
+              {/* Imported canvas images for the active page */}
+              {currentImages.map((item) => (
                 <KonvaImage
                   id={item.id}
                   key={item.id}
@@ -702,7 +848,7 @@ export default function App() {
                   }}
                   onDragEnd={(e) => {
                     const node = e.target
-                    setImages((prev) =>
+                    updateCurrentPageImages((prev) =>
                       prev.map((img) =>
                         img.id === item.id
                           ? {
@@ -743,7 +889,7 @@ export default function App() {
                   }}
                   onTransformEnd={(e) => {
                     const node = e.target
-                    setImages((prev) =>
+                    updateCurrentPageImages((prev) =>
                       prev.map((img) =>
                         img.id === item.id
                           ? {
@@ -835,6 +981,143 @@ export default function App() {
           </Stage>
         </div>
       </main>
+
+      {/* Bottom page navigation & management bar */}
+      <footer className="page-navigation-bar" aria-label="Page navigation bar">
+        {/* Page navigation group */}
+        <div className="page-nav-group">
+          <button
+            type="button"
+            className="btn btn-nav"
+            onClick={handlePrevPage}
+            disabled={safePageIndex === 0}
+            title="Go to previous page"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span className="text-label">Previous</span>
+          </button>
+
+          <div className="page-indicator" aria-live="polite">
+            Page {safePageIndex + 1} / {pages.length}
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-nav"
+            onClick={handleNextPage}
+            disabled={safePageIndex >= pages.length - 1}
+            title="Go to next page"
+          >
+            <span className="text-label">Next</span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Page actions group */}
+        <div className="page-actions-group">
+          {/* Add Page */}
+          <button
+            type="button"
+            className="btn btn-page-action add-page"
+            onClick={handleAddPage}
+            title="Add a new blank A4 page"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>+ Add Page</span>
+          </button>
+
+          {/* Duplicate Page */}
+          <button
+            type="button"
+            className="btn btn-page-action duplicate-page"
+            onClick={handleDuplicatePage}
+            title="Duplicate current page with all its images"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect width="13" height="13" x="9" y="9" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            <span className="text-label">Duplicate Page</span>
+          </button>
+
+          {/* Delete Page */}
+          <button
+            type="button"
+            className="btn btn-page-danger"
+            onClick={handleDeletePage}
+            disabled={pages.length <= 1}
+            title={
+              pages.length <= 1
+                ? 'Project must retain at least one page'
+                : 'Delete current page'
+            }
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 6h18" />
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
+            <span className="text-label">Delete Page</span>
+          </button>
+        </div>
+      </footer>
     </div>
   )
 }

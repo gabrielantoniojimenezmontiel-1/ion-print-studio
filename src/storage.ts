@@ -10,10 +10,18 @@ export interface SerializedImageItem {
   scaleY: number
 }
 
+export interface SerializedPage {
+  id: string
+  images: SerializedImageItem[]
+}
+
 export interface SavedProject {
   version: number
   updatedAt: number
-  images: SerializedImageItem[]
+  activePageIndex?: number
+  pages: SerializedPage[]
+  // Backward compatibility with older single-page storage format
+  images?: SerializedImageItem[]
 }
 
 const DB_NAME = 'ion_print_studio_db'
@@ -65,7 +73,26 @@ export async function loadProject(): Promise<SavedProject | null> {
       const store = tx.objectStore(STORE_NAME)
       const request = store.get(CURRENT_PROJECT_KEY)
 
-      request.onsuccess = () => resolve(request.result || null)
+      request.onsuccess = () => {
+        const result = request.result as SavedProject | undefined
+        if (!result) {
+          resolve(null)
+          return
+        }
+
+        // Migrate legacy single-page project to multi-page format
+        if ((!result.pages || result.pages.length === 0) && result.images) {
+          result.pages = [
+            {
+              id: 'page-default',
+              images: result.images,
+            },
+          ]
+          result.activePageIndex = 0
+        }
+
+        resolve(result)
+      }
       request.onerror = () => reject(request.error)
     })
   } catch (error) {
