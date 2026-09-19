@@ -62,8 +62,14 @@ interface ClipboardItem {
   sourcePageId: string
 }
 
+interface HistorySnapshot {
+  pages: CanvasPage[]
+  activePageIndex: number
+}
+
 export default function App() {
-  const [scale, setScale] = useState(1)
+  const [fitScale, setFitScale] = useState(1)
+  const [zoomFactor, setZoomFactor] = useState(1)
   const [pages, setPages] = useState<CanvasPage[]>([
     { id: 'page-1', images: [] },
   ])
@@ -87,6 +93,17 @@ export default function App() {
   const transformerRef = useRef<Konva.Transformer>(null)
   const clipboardRef = useRef<ClipboardItem | null>(null)
   const pasteCountRef = useRef<number>(0)
+  const pagesRef = useRef(pages)
+  const activePageIndexRef = useRef(activePageIndex)
+  const historyRef = useRef<{
+    past: HistorySnapshot[]
+    future: HistorySnapshot[]
+  }>({ past: [], future: [] })
+
+  useEffect(() => {
+    pagesRef.current = pages
+    activePageIndexRef.current = activePageIndex
+  }, [activePageIndex, pages])
 
   // Ensure active page index stays strictly within bounds
   const safePageIndex = Math.min(
@@ -100,12 +117,32 @@ export default function App() {
     currentImages.find((img) => img.id === selectedId) || null
 
   // Helper to update only the active page's images
+  const clonePages = useCallback((sourcePages: CanvasPage[]) => {
+    return sourcePages.map((page) => ({
+      ...page,
+      images: page.images.map((image) => ({ ...image })),
+    }))
+  }, [])
+
+  const recordHistory = useCallback(() => {
+    historyRef.current.past = [
+      ...historyRef.current.past.slice(-49),
+      {
+        pages: clonePages(pagesRef.current),
+        activePageIndex: activePageIndexRef.current,
+      },
+    ]
+    historyRef.current.future = []
+  }, [clonePages])
+
   const updateCurrentPageImages = useCallback(
     (
       updater:
         | CanvasImageItem[]
-        | ((prev: CanvasImageItem[]) => CanvasImageItem[])
+        | ((prev: CanvasImageItem[]) => CanvasImageItem[]),
+      shouldRecordHistory = true
     ) => {
+      if (shouldRecordHistory) recordHistory()
       setPages((prevPages) =>
         prevPages.map((page, idx) => {
           if (idx !== safePageIndex) return page
@@ -115,8 +152,36 @@ export default function App() {
         })
       )
     },
-    [safePageIndex]
+    [recordHistory, safePageIndex]
   )
+
+  const restoreHistorySnapshot = useCallback((snapshot: HistorySnapshot) => {
+    setPages(clonePages(snapshot.pages))
+    setActivePageIndex(snapshot.activePageIndex)
+    setSelectedId(null)
+    setTransformingInfo(null)
+    setFocusedField(null)
+  }, [clonePages])
+
+  const handleUndo = useCallback(() => {
+    const entry = historyRef.current.past.pop()
+    if (!entry) return
+    historyRef.current.future.push({
+      pages: clonePages(pagesRef.current),
+      activePageIndex: activePageIndexRef.current,
+    })
+    restoreHistorySnapshot(entry)
+  }, [clonePages, restoreHistorySnapshot])
+
+  const handleRedo = useCallback(() => {
+    const entry = historyRef.current.future.pop()
+    if (!entry) return
+    historyRef.current.past.push({
+      pages: clonePages(pagesRef.current),
+      activePageIndex: activePageIndexRef.current,
+    })
+    restoreHistorySnapshot(entry)
+  }, [clonePages, restoreHistorySnapshot])
 
   // Derived current physical measurements
   const currentPhysicalW = selectedImage
@@ -201,6 +266,7 @@ export default function App() {
 
             if (isMounted) {
               setPages(loadedPages)
+              historyRef.current = { past: [], future: [] }
               if (typeof saved.activePageIndex === 'number') {
                 const targetIndex = Math.min(
                   Math.max(0, saved.activePageIndex),
@@ -287,6 +353,43 @@ export default function App() {
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
+  }, [selectedId, updateCurrentPageImages])
+
+  const handleDuplicateSelected = useCallback(() => {
+    if (!selectedImage) return
+    const duplicate: CanvasImageItem = {
+      ...selectedImage,
+      id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      x: Math.min(selectedImage.x + 20, A4_BASE_WIDTH - selectedImage.width * Math.abs(selectedImage.scaleX) - 16),
+      y: Math.min(selectedImage.y + 20, A4_BASE_HEIGHT - selectedImage.height * Math.abs(selectedImage.scaleY) - 16),
+    }
+    updateCurrentPageImages((prev) => {
+      const index = prev.findIndex((image) => image.id === selectedImage.id)
+      return [...prev.slice(0, index + 1), duplicate, ...prev.slice(index + 1)]
+    })
+    setSelectedId(duplicate.id)
+  }, [selectedImage, updateCurrentPageImages])
+
+  const handleBringForward = useCallback(() => {
+    if (!selectedId) return
+    updateCurrentPageImages((prev) => {
+      const index = prev.findIndex((image) => image.id === selectedId)
+      if (index < 0 || index === prev.length - 1) return prev
+      const next = [...prev]
+      ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+      return next
+    })
+  }, [selectedId, updateCurrentPageImages])
+
+  const handleSendBackward = useCallback(() => {
+    if (!selectedId) return
+    updateCurrentPageImages((prev) => {
+      const index = prev.findIndex((image) => image.id === selectedId)
+      if (index <= 0) return prev
+      const next = [...prev]
+      ;[next[index], next[index - 1]] = [next[index - 1], next[index]]
+      return next
+    })
   }, [selectedId, updateCurrentPageImages])
 
   // 5. Copy, Cut, Paste logic
@@ -458,16 +561,39 @@ export default function App() {
         }
         return
       }
+
+      if (isCtrlOrCmd && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault()
+        handleUndo()
+        return
+      }
+
+      if (
+        isCtrlOrCmd &&
+        e.shiftKey &&
+        (e.key === 'z' || e.key === 'Z')
+      ) {
+        e.preventDefault()
+        handleRedo()
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, handleDeleteSelected, handleCopy, handlePaste, handleCut])
+  }, [
+    selectedId,
+    handleDeleteSelected,
+    handleCopy,
+    handlePaste,
+    handleCut,
+    handleUndo,
+    handleRedo,
+  ])
 
   // 8. Manual Reset ("New Project")
   const handleNewProject = async () => {
     const confirmed = window.confirm(
-      'Start a new project? This will clear all pages and elements from your canvas.'
+      'Clear all pages and images? This permanently resets the project to one blank A4 page.'
     )
     if (!confirmed) return
 
@@ -482,8 +608,21 @@ export default function App() {
     await clearSavedProject()
   }
 
+  const handleClearPage = () => {
+    if (currentImages.length === 0) return
+    const confirmed = window.confirm(
+      `Clear all ${currentImages.length} image${currentImages.length === 1 ? '' : 's'} from Page ${safePageIndex + 1}? Other pages will be preserved.`
+    )
+    if (!confirmed) return
+    updateCurrentPageImages([])
+    setSelectedId(null)
+    setTransformingInfo(null)
+    setFocusedField(null)
+  }
+
   // 9. Multi-page controls
   const handleAddPage = () => {
+    recordHistory()
     const newPage: CanvasPage = {
       id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       images: [],
@@ -498,6 +637,7 @@ export default function App() {
   const handleDuplicatePage = () => {
     const current = pages[safePageIndex]
     if (!current) return
+    recordHistory()
 
     // Deep-clone images with fresh unique IDs so both pages remain strictly independent
     const clonedImages: CanvasImageItem[] = current.images.map((img, i) => ({
@@ -530,6 +670,7 @@ export default function App() {
     )
     if (!confirmed) return
 
+    recordHistory()
     const nextPages = pages.filter((_, idx) => idx !== safePageIndex)
     setPages(nextPages)
     setActivePageIndex((prev) =>
@@ -571,7 +712,7 @@ export default function App() {
       const scaleX = availWidth / A4_BASE_WIDTH
       const scaleY = availHeight / A4_BASE_HEIGHT
       const fittedScale = Math.min(scaleX, scaleY, 1.1)
-      setScale(Math.max(fittedScale, 0.1))
+      setFitScale(Math.max(fittedScale, 0.1))
     }
 
     handleResize()
@@ -750,8 +891,14 @@ export default function App() {
     }
   }
 
-  const pageWidth = Math.round(A4_BASE_WIDTH * scale)
-  const pageHeight = Math.round(A4_BASE_HEIGHT * scale)
+  const visualScale = fitScale * zoomFactor
+  const pageWidth = Math.round(A4_BASE_WIDTH * visualScale)
+  const pageHeight = Math.round(A4_BASE_HEIGHT * visualScale)
+  const handleZoomOut = () =>
+    setZoomFactor((value) => Math.max(0.25, Math.round((value / 1.25) * 100) / 100))
+  const handleZoomIn = () =>
+    setZoomFactor((value) => Math.min(4, Math.round((value * 1.25) * 100) / 100))
+  const handleFit = () => setZoomFactor(1)
 
   return (
     <div className="app-container">
@@ -787,6 +934,36 @@ export default function App() {
               <line x1="9" y1="15" x2="15" y2="15" />
             </svg>
             <span className="btn-text">New Project</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleClearPage}
+            disabled={currentImages.length === 0}
+            title="Clear every image from the current page"
+          >
+            <span className="btn-text">Clear Page</span>
+          </button>
+
+          <div className="toolbar-divider" />
+          <button
+            type="button"
+            className="btn btn-secondary history-button"
+            onClick={handleUndo}
+            title="Undo (Ctrl/Cmd+Z)"
+          >
+            <span aria-hidden="true">↶</span>
+            <span className="btn-text">Undo</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary history-button"
+            onClick={handleRedo}
+            title="Redo (Ctrl/Cmd+Shift+Z)"
+          >
+            <span aria-hidden="true">↷</span>
+            <span className="btn-text">Redo</span>
           </button>
 
           {/* Print Project button */}
@@ -1068,6 +1245,21 @@ export default function App() {
               />
               <span className="input-suffix">cm</span>
             </div>
+
+            <div className="selection-actions" aria-label="Selected image actions">
+              <button type="button" className="btn btn-compact-action" onClick={handleDuplicateSelected}>
+                Duplicate
+              </button>
+              <button type="button" className="btn btn-compact-action" onClick={handleBringForward}>
+                Forward
+              </button>
+              <button type="button" className="btn btn-compact-action" onClick={handleSendBackward}>
+                Back
+              </button>
+              <button type="button" className="btn btn-compact-action btn-danger" onClick={handleDeleteSelected}>
+                Delete
+              </button>
+            </div>
           </div>
         ) : (
           <div className="properties-hint">
@@ -1095,6 +1287,20 @@ export default function App() {
           }
         }}
       >
+        <div className="zoom-controls" aria-label="Visual editor zoom">
+          <button type="button" className="zoom-button" onClick={handleZoomOut} aria-label="Zoom out">
+            −
+          </button>
+          <button type="button" className="zoom-value" onClick={handleFit} title="Fit page to workspace">
+            {Math.round(zoomFactor * 100)}%
+          </button>
+          <button type="button" className="zoom-button" onClick={handleZoomIn} aria-label="Zoom in">
+            +
+          </button>
+          <button type="button" className="zoom-fit" onClick={handleFit}>
+            Fit
+          </button>
+        </div>
         {/* Centered white printable page */}
         <div
           className="page-container"
@@ -1106,8 +1312,8 @@ export default function App() {
           <Stage
             width={pageWidth}
             height={pageHeight}
-            scaleX={scale}
-            scaleY={scale}
+            scaleX={visualScale}
+            scaleY={visualScale}
             onMouseDown={handleCanvasDeselect}
             onTouchStart={handleCanvasDeselect}
           >
@@ -1145,6 +1351,7 @@ export default function App() {
                     setSelectedId(item.id)
                   }}
                   onDragStart={() => {
+                    recordHistory()
                     setSelectedId(item.id)
                   }}
                   onDragEnd={(e) => {
@@ -1158,8 +1365,13 @@ export default function App() {
                               y: Math.round(node.y()),
                             }
                           : img
-                      )
+                      ),
+                      false
                     )
+                  }}
+                  onTransformStart={() => {
+                    recordHistory()
+                    setSelectedId(item.id)
                   }}
                   onTransform={(e) => {
                     const node = e.target
@@ -1173,12 +1385,12 @@ export default function App() {
                     // Compute live badge position in logical coordinates
                     const clientRect = node.getClientRect({ skipShadow: true })
                     const logicalCenterX =
-                      (clientRect.x + clientRect.width / 2) / scale
+                      (clientRect.x + clientRect.width / 2) / visualScale
                     const logicalBottomY =
-                      (clientRect.y + clientRect.height) / scale + 18
+                      (clientRect.y + clientRect.height) / visualScale + 18
                     const badgeY =
                       logicalBottomY > A4_BASE_HEIGHT - 20
-                        ? Math.max(16, clientRect.y / scale - 18)
+                        ? Math.max(16, clientRect.y / visualScale - 18)
                         : logicalBottomY
 
                     setTransformingInfo({
@@ -1202,7 +1414,8 @@ export default function App() {
                               rotation: Math.round(node.rotation() * 10) / 10,
                             }
                           : img
-                      )
+                      ),
+                      false
                     )
                     setTransformingInfo(null)
                   }}

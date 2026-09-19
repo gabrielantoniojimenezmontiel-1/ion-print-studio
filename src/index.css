@@ -13,9 +13,15 @@ html, body, #root {
   -moz-osx-font-smoothing: grayscale;
   background-color: #f1f5f9;
   color: #1e293b;
+  overscroll-behavior: none;
 }
 
 button {
   font-family: inherit;
   cursor: pointer;
+}
+
+input,
+button {
+  -webkit-tap-highlight-color: transparent;
 }
