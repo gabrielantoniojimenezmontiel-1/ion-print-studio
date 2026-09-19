@@ -387,8 +387,19 @@ export default function App() {
       const renderedSheets = await renderAllPagesForPrint(pages, 3)
       setPrintSheets(renderedSheets)
 
-      // Brief pause to allow the print sheets to mount in DOM
-      await new Promise((resolve) => setTimeout(resolve, 200))
+      // Pre-decode all sheet images to ensure iOS Safari / WebKit has them in memory
+      await Promise.all(
+        renderedSheets.map((src) => {
+          const preImg = new window.Image()
+          preImg.src = src
+          return preImg.decode ? preImg.decode().catch(() => {}) : Promise.resolve()
+        })
+      )
+
+      // Brief animation frame pause for print DOM layout pass
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => setTimeout(resolve, 80))
+      )
 
       window.print()
     } catch (err) {
