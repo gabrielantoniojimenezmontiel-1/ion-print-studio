@@ -26,6 +26,7 @@ import {
   type PageOrientation,
 } from './units'
 import { renderAllPagesForPrint } from './printRenderer'
+import { isPageEmpty } from './pageUtils'
 import './App.css'
 
 const APP_VERSION = '0.2.0'
@@ -144,6 +145,12 @@ export default function App() {
   const currentImages = currentPage.images
   const currentTexts = currentPage.texts
   const dimensions = pageDimensions(pagePreset, orientation)
+  const lastMeaningfulPageIndex = pages.reduce(
+    (lastIndex, page, index) => (isPageEmpty(page) ? lastIndex : index),
+    -1
+  )
+  const visiblePageCount = Math.max(1, lastMeaningfulPageIndex + 1)
+  const visiblePageNumber = Math.min(safePageIndex + 1, visiblePageCount)
 
   const selectedImage =
     currentImages.find((img) => img.id === selectedId) || null
@@ -623,9 +630,14 @@ export default function App() {
     setFocusedField(null)
 
     try {
-      // Render every page offscreen at pixelRatio: 3 (~300 DPI)
+      const printablePages = pages.filter((page) => !isPageEmpty(page))
+      if (printablePages.length === 0) {
+        printablePages.push(pages[0] || { id: 'page-blank', images: [], texts: [] })
+      }
+
+      // Render only pages with content offscreen at pixelRatio: 3 (~300 DPI)
       const renderedSheets = await renderAllPagesForPrint(
-        pages.map((page) => ({
+        printablePages.map((page) => ({
           ...page,
           width: dimensions.width,
           height: dimensions.height,
@@ -780,6 +792,24 @@ export default function App() {
 
   // 9. Multi-page controls
   const handleAddPage = () => {
+    if (isPageEmpty(currentPage)) {
+      setSelectedId(null)
+      setTransformingInfo(null)
+      setFocusedField(null)
+      return
+    }
+
+    const existingBlankPageIndex = pages.findIndex(
+      (page, index) => index >= visiblePageCount && isPageEmpty(page)
+    )
+    if (existingBlankPageIndex >= 0) {
+      setActivePageIndex(existingBlankPageIndex)
+      setSelectedId(null)
+      setTransformingInfo(null)
+      setFocusedField(null)
+      return
+    }
+
     recordHistory()
     const newPage: CanvasPage = {
       id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -855,7 +885,7 @@ export default function App() {
   }
 
   const handleNextPage = () => {
-    if (safePageIndex < pages.length - 1) {
+    if (safePageIndex < visiblePageCount - 1) {
       setActivePageIndex(safePageIndex + 1)
       setSelectedId(null)
       setTransformingInfo(null)
@@ -1508,7 +1538,7 @@ export default function App() {
         ) : (
           <div className="properties-hint">
             <span className="hint-badge">
-              Page {safePageIndex + 1} of {pages.length}
+              Page {visiblePageNumber} of {visiblePageCount}
             </span>
             <label htmlFor="page-preset">Page</label>
             <select id="page-preset" value={pagePreset} onChange={(e) => setPagePreset(e.target.value as PagePreset)}>
@@ -1887,14 +1917,14 @@ export default function App() {
           </button>
 
           <div className="page-indicator" aria-live="polite">
-            Page {safePageIndex + 1} / {pages.length}
+            Page {visiblePageNumber} / {visiblePageCount}
           </div>
 
           <button
             type="button"
             className="btn btn-nav"
             onClick={handleNextPage}
-            disabled={safePageIndex >= pages.length - 1}
+            disabled={safePageIndex >= visiblePageCount - 1}
             title="Go to next page"
           >
             <span className="text-label">Next</span>
