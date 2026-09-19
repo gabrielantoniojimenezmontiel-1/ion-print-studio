@@ -67,6 +67,30 @@ interface CanvasPage {
   texts: CanvasTextItem[]
 }
 
+function normalizePages(
+  sourcePages: CanvasPage[],
+  activePageId: string | undefined,
+  temporaryPageId: string | null
+): { pages: CanvasPage[]; activePageIndex: number } {
+  const activeSourceIndex = sourcePages.findIndex((page) => page.id === activePageId)
+  const hasContent = sourcePages.some((page) => !isPageEmpty(page))
+  const normalizedPages = hasContent
+    ? sourcePages.filter(
+        (page) =>
+          !isPageEmpty(page) ||
+          (page.id === temporaryPageId && page.id === activePageId)
+      )
+    : [sourcePages[0] || { id: 'page-default', images: [], texts: [] }]
+  const activeIndex = normalizedPages.findIndex((page) => page.id === activePageId)
+  return {
+    pages: normalizedPages,
+    activePageIndex:
+      activeIndex >= 0
+        ? activeIndex
+        : Math.min(Math.max(0, activeSourceIndex), normalizedPages.length - 1),
+  }
+}
+
 interface TransformingInfo {
   widthCm: number
   heightCm: number
@@ -102,6 +126,7 @@ export default function App() {
   const [pagePreset, setPagePreset] = useState<PagePreset>('A4')
   const [orientation, setOrientation] = useState<PageOrientation>('portrait')
   const [activePageIndex, setActivePageIndex] = useState<number>(0)
+  const [temporaryBlankPageId, setTemporaryBlankPageId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [isAspectLocked, setIsAspectLocked] = useState(true)
@@ -145,12 +170,8 @@ export default function App() {
   const currentImages = currentPage.images
   const currentTexts = currentPage.texts
   const dimensions = pageDimensions(pagePreset, orientation)
-  const lastMeaningfulPageIndex = pages.reduce(
-    (lastIndex, page, index) => (isPageEmpty(page) ? lastIndex : index),
-    -1
-  )
-  const visiblePageCount = Math.max(1, lastMeaningfulPageIndex + 1)
-  const visiblePageNumber = Math.min(safePageIndex + 1, visiblePageCount)
+  const visiblePageCount = pages.length
+  const visiblePageNumber = safePageIndex + 1
 
   const selectedImage =
     currentImages.find((img) => img.id === selectedId) || null
@@ -212,16 +233,34 @@ export default function App() {
       shouldRecordHistory = true
     ) => {
       if (shouldRecordHistory) recordHistory()
-      setPages((prevPages) =>
-        prevPages.map((page, idx) => {
+      setPages((prevPages) => {
+        const updatedPages = prevPages.map((page, idx) => {
           if (idx !== safePageIndex) return page
           const nextImages =
             typeof updater === 'function' ? updater(page.images) : updater
           return { ...page, images: nextImages }
         })
-      )
+        const activePageId = updatedPages[safePageIndex]?.id
+        const activeHasContent = activePageId
+          ? !isPageEmpty(updatedPages[safePageIndex])
+          : false
+        const nextTemporaryPageId =
+          activeHasContent && activePageId === temporaryBlankPageId
+            ? null
+            : temporaryBlankPageId
+        if (nextTemporaryPageId !== temporaryBlankPageId) {
+          setTemporaryBlankPageId(nextTemporaryPageId)
+        }
+        const normalized = normalizePages(
+          updatedPages,
+          activePageId,
+          nextTemporaryPageId
+        )
+        setActivePageIndex(normalized.activePageIndex)
+        return normalized.pages
+      })
     },
-    [recordHistory, safePageIndex]
+    [recordHistory, safePageIndex, temporaryBlankPageId]
   )
 
   const updateCurrentPageTexts = useCallback(
@@ -232,21 +271,42 @@ export default function App() {
       shouldRecordHistory = true
     ) => {
       if (shouldRecordHistory) recordHistory()
-      setPages((prevPages) =>
-        prevPages.map((page, idx) => {
+      setPages((prevPages) => {
+        const updatedPages = prevPages.map((page, idx) => {
           if (idx !== safePageIndex) return page
           const nextTexts =
             typeof updater === 'function' ? updater(page.texts) : updater
           return { ...page, texts: nextTexts }
         })
-      )
+        const activePageId = updatedPages[safePageIndex]?.id
+        const activeHasContent = activePageId
+          ? !isPageEmpty(updatedPages[safePageIndex])
+          : false
+        const nextTemporaryPageId =
+          activeHasContent && activePageId === temporaryBlankPageId
+            ? null
+            : temporaryBlankPageId
+        if (nextTemporaryPageId !== temporaryBlankPageId) {
+          setTemporaryBlankPageId(nextTemporaryPageId)
+        }
+        const normalized = normalizePages(
+          updatedPages,
+          activePageId,
+          nextTemporaryPageId
+        )
+        setActivePageIndex(normalized.activePageIndex)
+        return normalized.pages
+      })
     },
-    [recordHistory, safePageIndex]
+    [recordHistory, safePageIndex, temporaryBlankPageId]
   )
 
   const restoreHistorySnapshot = useCallback((snapshot: HistorySnapshot) => {
-    setPages(clonePages(snapshot.pages))
-    setActivePageIndex(snapshot.activePageIndex)
+    const activePageId = snapshot.pages[snapshot.activePageIndex]?.id
+    const normalized = normalizePages(snapshot.pages, activePageId, null)
+    setPages(clonePages(normalized.pages))
+    setActivePageIndex(normalized.activePageIndex)
+    setTemporaryBlankPageId(null)
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
@@ -365,17 +425,21 @@ export default function App() {
             )
 
             if (isMounted) {
-              setPages(loadedPages)
+              const savedActivePageId =
+                saved.activePageId ||
+                (typeof saved.activePageIndex === 'number'
+                  ? loadedPages[saved.activePageIndex]?.id
+                  : undefined)
+              const normalized = normalizePages(
+                loadedPages,
+                savedActivePageId,
+                null
+              )
+              setPages(normalized.pages)
+              setActivePageIndex(normalized.activePageIndex)
               if (saved.pagePreset) setPagePreset(saved.pagePreset)
               if (saved.orientation) setOrientation(saved.orientation)
               historyRef.current = { past: [], future: [] }
-              if (typeof saved.activePageIndex === 'number') {
-                const targetIndex = Math.min(
-                  Math.max(0, saved.activePageIndex),
-                  loadedPages.length - 1
-                )
-                setActivePageIndex(targetIndex)
-              }
             }
           }
         }
@@ -431,6 +495,7 @@ export default function App() {
         version: 2,
         updatedAt: Date.now(),
         activePageIndex: safePageIndex,
+        activePageId: currentPage.id,
         pagePreset,
         orientation,
         pages: serializedPages,
@@ -440,7 +505,7 @@ export default function App() {
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [pages, safePageIndex, isLoaded, pagePreset, orientation])
+  }, [pages, safePageIndex, currentPage.id, isLoaded, pagePreset, orientation])
 
   // 3. Attach Transformer to the selected node on the active page
   useEffect(() => {
@@ -769,6 +834,7 @@ export default function App() {
     setFocusedField(null)
     setPages([{ id: 'page-1', images: [], texts: [] }])
     setActivePageIndex(0)
+    setTemporaryBlankPageId(null)
     setPagePreset('A4')
     setOrientation('portrait')
     setPrintSheets([])
@@ -783,8 +849,17 @@ export default function App() {
       `Clear all objects from Page ${safePageIndex + 1}? Other pages will be preserved.`
     )
     if (!confirmed) return
-    updateCurrentPageImages([])
-    updateCurrentPageTexts([])
+    recordHistory()
+    const normalized = normalizePages(
+      pages.map((page, index) =>
+        index === safePageIndex ? { ...page, images: [], texts: [] } : page
+      ),
+      currentPage.id,
+      null
+    )
+    setPages(normalized.pages)
+    setActivePageIndex(normalized.activePageIndex)
+    setTemporaryBlankPageId(null)
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
@@ -792,18 +867,7 @@ export default function App() {
 
   // 9. Multi-page controls
   const handleAddPage = () => {
-    if (isPageEmpty(currentPage)) {
-      setSelectedId(null)
-      setTransformingInfo(null)
-      setFocusedField(null)
-      return
-    }
-
-    const existingBlankPageIndex = pages.findIndex(
-      (page, index) => index >= visiblePageCount && isPageEmpty(page)
-    )
-    if (existingBlankPageIndex >= 0) {
-      setActivePageIndex(existingBlankPageIndex)
+    if (temporaryBlankPageId === currentPage.id) {
       setSelectedId(null)
       setTransformingInfo(null)
       setFocusedField(null)
@@ -818,6 +882,7 @@ export default function App() {
     }
     setPages((prev) => [...prev, newPage])
     setActivePageIndex(pages.length)
+    setTemporaryBlankPageId(newPage.id)
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
@@ -825,7 +890,7 @@ export default function App() {
 
   const handleDuplicatePage = () => {
     const current = pages[safePageIndex]
-    if (!current) return
+    if (!current || isPageEmpty(current)) return
     recordHistory()
 
     // Deep-clone images with fresh unique IDs so both pages remain strictly independent
@@ -870,6 +935,7 @@ export default function App() {
     setActivePageIndex((prev) =>
       Math.max(0, Math.min(prev, nextPages.length - 1))
     )
+    setTemporaryBlankPageId(null)
     setSelectedId(null)
     setTransformingInfo(null)
     setFocusedField(null)
@@ -877,7 +943,15 @@ export default function App() {
 
   const handlePrevPage = () => {
     if (safePageIndex > 0) {
-      setActivePageIndex(safePageIndex - 1)
+      const targetPage = pages[safePageIndex - 1]
+      const nextPages =
+        temporaryBlankPageId === currentPage.id && isPageEmpty(currentPage)
+          ? pages.filter((page) => page.id !== currentPage.id)
+          : pages
+      const nextIndex = nextPages.findIndex((page) => page.id === targetPage.id)
+      setPages(nextPages)
+      setTemporaryBlankPageId(null)
+      setActivePageIndex(Math.max(0, nextIndex))
       setSelectedId(null)
       setTransformingInfo(null)
       setFocusedField(null)
@@ -886,7 +960,15 @@ export default function App() {
 
   const handleNextPage = () => {
     if (safePageIndex < visiblePageCount - 1) {
-      setActivePageIndex(safePageIndex + 1)
+      const targetPage = pages[safePageIndex + 1]
+      const nextPages =
+        temporaryBlankPageId === currentPage.id && isPageEmpty(currentPage)
+          ? pages.filter((page) => page.id !== currentPage.id)
+          : pages
+      const nextIndex = nextPages.findIndex((page) => page.id === targetPage.id)
+      setPages(nextPages)
+      setTemporaryBlankPageId(null)
+      setActivePageIndex(Math.max(0, nextIndex))
       setSelectedId(null)
       setTransformingInfo(null)
       setFocusedField(null)

@@ -34,6 +34,7 @@ export interface SavedProject {
   version: number
   updatedAt: number
   activePageIndex?: number
+  activePageId?: string
   pages: SerializedPage[]
   pagePreset?: 'A4' | 'Letter' | 'Tabloid'
   orientation?: 'portrait' | 'landscape'
@@ -106,6 +107,34 @@ export async function loadProject(): Promise<SavedProject | null> {
             },
           ]
           result.activePageIndex = 0
+        }
+
+        const pagesWithContent = (result.pages || []).filter(
+          (page) => page.images.length > 0 || (page.texts?.length ?? 0) > 0
+        )
+        if (pagesWithContent.length > 0) {
+          const activePageId =
+            result.activePageId ||
+            (typeof result.activePageIndex === 'number'
+              ? result.pages?.[result.activePageIndex]?.id
+              : undefined)
+          result.pages = pagesWithContent
+          result.activePageId = activePageId
+          result.activePageIndex = Math.max(
+            0,
+            pagesWithContent.findIndex((page) => page.id === activePageId)
+          )
+          if (result.activePageIndex < 0) result.activePageIndex = 0
+        } else {
+          result.pages = [
+            result.pages?.[0] || {
+              id: 'page-default',
+              images: [],
+              texts: [],
+            },
+          ]
+          result.activePageIndex = 0
+          result.activePageId = result.pages[0].id
         }
 
         resolve(result)
