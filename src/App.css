@@ -1,0 +1,136 @@
+/* App layout */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100vw;
+  background-color: #f1f5f9;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+
+/* Top toolbar */
+.top-toolbar {
+  height: 56px;
+  min-height: 56px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  box-sizing: border-box;
+  z-index: 10;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.toolbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-icon {
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.5px;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+}
+
+.app-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.3px;
+  margin: 0;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.add-image-btn {
+  background-color: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  min-height: 38px;
+}
+
+.add-image-btn:hover {
+  background-color: #1d4ed8;
+}
+
+.add-image-btn:active {
+  background-color: #1e40af;
+  transform: translateY(1px);
+}
+
+/* Light gray workspace */
+.workspace {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background-color: #f1f5f9;
+}
+
+/* Centered printable page */
+.page-container {
+  background-color: #ffffff;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* Responsive adjustments for mobile / iPhone */
+@media (max-width: 640px) {
+  .top-toolbar {
+    padding: 0 12px;
+    height: 52px;
+    min-height: 52px;
+  }
+
+  .app-title {
+    font-size: 16px;
+  }
+
+  .add-image-btn {
+    padding: 7px 12px;
+    font-size: 13px;
+  }
+
+  .workspace {
+    padding: 12px;
+  }
+}
