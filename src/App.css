@@ -41,9 +41,10 @@
   justify-content: center;
   color: #ffffff;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: -0.5px;
   box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+  flex-shrink: 0;
 }
 
 .app-title {
@@ -52,38 +53,91 @@
   color: #0f172a;
   letter-spacing: -0.3px;
   margin: 0;
+  white-space: nowrap;
 }
 
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
-.add-image-btn {
-  background-color: #2563eb;
-  color: #ffffff;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
+/* Base button */
+.btn {
+  font-family: inherit;
   font-size: 14px;
   font-weight: 600;
+  border-radius: 6px;
+  padding: 8px 14px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  cursor: pointer;
   transition: all 0.15s ease;
   touch-action: manipulation;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-sizing: border-box;
   min-height: 38px;
+  white-space: nowrap;
 }
 
-.add-image-btn:hover {
+/* Secondary / Outline button (New Project) */
+.btn-secondary {
+  background-color: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+
+.btn-secondary:hover {
+  background-color: #f8fafc;
+  color: #1e293b;
+  border-color: #94a3b8;
+}
+
+.btn-secondary:active {
+  background-color: #f1f5f9;
+}
+
+/* Primary button (Add Image) */
+.btn-primary {
+  background-color: #2563eb;
+  color: #ffffff;
+  border: 1px solid #2563eb;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+}
+
+.btn-primary:hover {
   background-color: #1d4ed8;
+  border-color: #1d4ed8;
 }
 
-.add-image-btn:active {
+.btn-primary:active {
   background-color: #1e40af;
   transform: translateY(1px);
+}
+
+/* Danger button (Delete) */
+.btn-danger {
+  background-color: #ffffff;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #fef2f2;
+  border-color: #f87171;
+}
+
+.btn-danger:active:not(:disabled) {
+  background-color: #fee2e2;
+  transform: translateY(1px);
+}
+
+.btn-danger:disabled {
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  background-color: #f8fafc;
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 /* Light gray workspace */
@@ -111,26 +165,46 @@
   align-items: center;
   justify-content: center;
   position: relative;
+  transition: width 0.05s linear, height 0.05s linear;
 }
 
 /* Responsive adjustments for mobile / iPhone */
 @media (max-width: 640px) {
   .top-toolbar {
-    padding: 0 12px;
+    padding: 0 10px;
     height: 52px;
     min-height: 52px;
   }
 
-  .app-title {
-    font-size: 16px;
+  .brand-icon {
+    display: none;
   }
 
-  .add-image-btn {
-    padding: 7px 12px;
+  .app-title {
+    font-size: 15px;
+  }
+
+  .toolbar-actions {
+    gap: 6px;
+  }
+
+  .btn {
+    padding: 6px 10px;
     font-size: 13px;
+    min-height: 34px;
   }
 
   .workspace {
     padding: 12px;
+  }
+}
+
+@media (max-width: 440px) {
+  .app-title {
+    display: none;
+  }
+
+  .brand-icon {
+    display: flex;
   }
 }
