@@ -28,6 +28,9 @@ import {
 import { renderAllPagesForPrint } from './printRenderer'
 import './App.css'
 
+const APP_VERSION = '0.2.0'
+const PRINT_STYLE_ID = 'ion-print-page-style'
+
 interface CanvasImageItem {
   type: 'image'
   id: string
@@ -631,6 +634,17 @@ export default function App() {
       )
       setPrintSheets(renderedSheets)
 
+      const printStyle =
+        document.getElementById(PRINT_STYLE_ID) ||
+        document.head.appendChild(document.createElement('style'))
+      printStyle.id = PRINT_STYLE_ID
+      printStyle.textContent = `
+        @page {
+          size: ${dimensions.widthCm}cm ${dimensions.heightCm}cm;
+          margin: 0;
+        }
+      `
+
       // Pre-decode all sheet images to ensure iOS Safari / WebKit has them in memory
       await Promise.all(
         renderedSheets.map((src) => {
@@ -1058,6 +1072,7 @@ export default function App() {
         <div className="toolbar-brand">
           <div className="brand-icon">ION</div>
           <h1 className="app-title">ION Print Studio</h1>
+          <span className="app-version">v{APP_VERSION}</span>
         </div>
 
         <div className="toolbar-actions">
@@ -1511,6 +1526,44 @@ export default function App() {
           </div>
         )}
       </nav>
+
+      <div className="mobile-edit-controls" aria-label="Mobile page controls">
+        <button
+          type="button"
+          className="btn btn-primary mobile-add-text"
+          onClick={handleAddText}
+        >
+          <span aria-hidden="true">T</span>
+          <span>Add Text</span>
+        </button>
+        <label>
+          <span>Page</span>
+          <select
+            value={pagePreset}
+            onChange={(e) => setPagePreset(e.target.value as PagePreset)}
+            aria-label="Page size"
+          >
+            {Object.keys(PAGE_PRESETS).map((preset) => (
+              <option key={preset} value={preset}>
+                {preset}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Orientation</span>
+          <select
+            value={orientation}
+            onChange={(e) =>
+              setOrientation(e.target.value as PageOrientation)
+            }
+            aria-label="Page orientation"
+          >
+            <option value="portrait">Portrait</option>
+            <option value="landscape">Landscape</option>
+          </select>
+        </label>
+      </div>
 
       {/* Light gray workspace */}
       <main
@@ -1966,18 +2019,27 @@ export default function App() {
       )}
 
       {/* High-resolution multi-page printable document for window.print() */}
-      <div className="print-document" aria-hidden="true">
+      <div
+        className="print-document"
+        aria-hidden="true"
+        style={{
+          width: `${dimensions.widthCm}cm`,
+          maxWidth: `${dimensions.widthCm}cm`,
+        }}
+      >
         {printSheets.map((sheetUrl, index) => (
           <div
             key={index}
             className="print-sheet"
-            style={{ width: `${dimensions.widthCm}cm`, height: `${dimensions.heightCm}cm` }}
+            style={{
+              width: `${dimensions.widthCm}cm`,
+              height: `${dimensions.heightCm}cm`,
+            }}
           >
             <img
               src={sheetUrl}
               alt=""
               className="print-sheet-img"
-              style={{ width: `${dimensions.widthCm}cm`, height: `${dimensions.heightCm}cm` }}
             />
           </div>
         ))}

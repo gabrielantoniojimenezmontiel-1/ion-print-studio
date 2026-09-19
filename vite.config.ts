@@ -9,6 +9,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: 'auto',
       includeAssets: ['favicon.svg', 'pwa-192.svg', 'pwa-512.svg'],
       manifest: {
         name: 'ION Print Studio',
