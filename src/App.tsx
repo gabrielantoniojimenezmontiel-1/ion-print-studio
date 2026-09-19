@@ -1496,6 +1496,32 @@ export default function App() {
         </div>
       </main>
 
+      {/* Mobile contextual clipboard actions */}
+      {(selectedImage || hasClipboard) && (
+        <div className="mobile-contextual-toolbar" aria-label="Mobile image actions">
+          {selectedImage && (
+            <button
+              type="button"
+              className="btn btn-mobile-action"
+              onClick={handleCopy}
+              title="Copy selected image"
+            >
+              Copy
+            </button>
+          )}
+          {hasClipboard && (
+            <button
+              type="button"
+              className="btn btn-mobile-action btn-mobile-paste"
+              onClick={handlePaste}
+              title="Paste copied image onto the active page"
+            >
+              Paste
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Bottom page navigation & management bar */}
       <footer className="page-navigation-bar" aria-label="Page navigation bar">
         {/* Page navigation group */}
