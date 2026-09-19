@@ -855,19 +855,56 @@
 
   .toolbar-actions {
     min-width: 0;
-    overflow: hidden;
-    justify-content: flex-end;
-    flex: 1;
+    flex: 1 1 auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    scrollbar-width: none;
+  }
+
+  .toolbar-actions::-webkit-scrollbar {
+    display: none;
   }
 
   .toolbar-actions > button {
+    flex-shrink: 0;
     min-width: 40px;
     min-height: 44px;
     padding: 5px;
     justify-content: center;
   }
 
-  .toolbar-actions > button:nth-of-type(n + 7) {
+  .toolbar-actions > .btn-add-image {
+    order: 1;
+  }
+
+  .toolbar-actions > .btn-add-text {
+    order: 2;
+  }
+
+  .toolbar-actions > .btn-print {
+    order: 3;
+  }
+
+  .toolbar-actions > .history-undo {
+    order: 4;
+  }
+
+  .toolbar-actions > .history-redo {
+    order: 5;
+  }
+
+  .toolbar-actions > .btn-secondary:not(.history-button),
+  .toolbar-actions > .btn-danger,
+  .toolbar-actions > .toolbar-divider,
+  .toolbar-actions > input {
+    order: 6;
+  }
+
+  .toolbar-actions > .page-size-controls {
     display: none;
   }
 
@@ -895,16 +932,9 @@
     flex-shrink: 0;
   }
 
-  .mobile-edit-controls .mobile-add-text {
-    flex: 1 1 34%;
-    min-height: 44px;
-    justify-content: center;
-    padding: 8px;
-  }
-
   .mobile-edit-controls label {
     display: flex;
-    flex: 1 1 33%;
+    flex: 1 1 50%;
     min-width: 0;
     flex-direction: column;
     justify-content: center;

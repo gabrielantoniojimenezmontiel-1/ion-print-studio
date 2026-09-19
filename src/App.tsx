@@ -1115,7 +1115,7 @@ export default function App() {
           <div className="toolbar-divider" />
           <button
             type="button"
-            className="btn btn-secondary history-button"
+            className="btn btn-secondary history-button history-undo"
             onClick={handleUndo}
             title="Undo (Ctrl/Cmd+Z)"
           >
@@ -1124,7 +1124,7 @@ export default function App() {
           </button>
           <button
             type="button"
-            className="btn btn-secondary history-button"
+            className="btn btn-secondary history-button history-redo"
             onClick={handleRedo}
             title="Redo (Ctrl/Cmd+Shift+Z)"
           >
@@ -1176,7 +1176,7 @@ export default function App() {
           {/* Add Image button (supports multiple files) */}
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn btn-primary btn-add-image"
             onClick={handleAddImageClick}
             title="Import one or more images onto the active page"
           >
@@ -1528,14 +1528,6 @@ export default function App() {
       </nav>
 
       <div className="mobile-edit-controls" aria-label="Mobile page controls">
-        <button
-          type="button"
-          className="btn btn-primary mobile-add-text"
-          onClick={handleAddText}
-        >
-          <span aria-hidden="true">T</span>
-          <span>Add Text</span>
-        </button>
         <label>
           <span>Page</span>
           <select
