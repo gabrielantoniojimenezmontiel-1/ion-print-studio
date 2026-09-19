@@ -12,17 +12,17 @@
 
 /* Top toolbar */
 .top-toolbar {
-  height: 56px;
-  min-height: 56px;
+  height: 54px;
+  min-height: 54px;
   background-color: #ffffff;
   border-bottom: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 18px;
   box-sizing: border-box;
   z-index: 10;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
 }
 
 .toolbar-brand {
@@ -68,7 +68,7 @@
   font-size: 14px;
   font-weight: 600;
   border-radius: 6px;
-  padding: 8px 14px;
+  padding: 7px 14px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -76,7 +76,7 @@
   transition: all 0.15s ease;
   touch-action: manipulation;
   box-sizing: border-box;
-  min-height: 38px;
+  min-height: 36px;
   white-space: nowrap;
 }
 
@@ -137,7 +137,150 @@
   border-color: #e2e8f0;
   background-color: #f8fafc;
   cursor: not-allowed;
-  opacity: 0.7;
+  opacity: 0.65;
+}
+
+/* Properties sub-toolbar for physical measurements */
+.properties-bar {
+  height: 42px;
+  min-height: 42px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  box-sizing: border-box;
+  z-index: 9;
+}
+
+.properties-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.properties-label {
+  font-weight: 600;
+  color: #475569;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.input-group {
+  display: inline-flex;
+  align-items: center;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 3px 8px;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.input-group:focus-within {
+  background-color: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.input-prefix {
+  font-weight: 700;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.size-input {
+  width: 54px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  text-align: right;
+  padding: 0;
+}
+
+/* Remove default spinner arrows in WebKit/Blink browsers */
+.size-input::-webkit-outer-spin-button,
+.size-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.size-input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+.input-suffix {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.btn-aspect-lock {
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 28px;
+  touch-action: manipulation;
+}
+
+.btn-aspect-lock.locked {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #2563eb;
+}
+
+.btn-aspect-lock.locked:hover {
+  background-color: #dbeafe;
+}
+
+.btn-aspect-lock.unlocked {
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+}
+
+.btn-aspect-lock.unlocked:hover {
+  background-color: #f1f5f9;
+  color: #334155;
+}
+
+.properties-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.hint-badge {
+  background-color: #eff6ff;
+  color: #2563eb;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.hint-divider {
+  color: #cbd5e1;
+}
+
+.hint-sub {
+  color: #94a3b8;
 }
 
 /* Light gray workspace */
@@ -148,7 +291,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 20px;
   box-sizing: border-box;
   background-color: #f1f5f9;
 }
@@ -172,8 +315,8 @@
 @media (max-width: 640px) {
   .top-toolbar {
     padding: 0 10px;
-    height: 52px;
-    min-height: 52px;
+    height: 50px;
+    min-height: 50px;
   }
 
   .brand-icon {
@@ -189,13 +332,40 @@
   }
 
   .btn {
-    padding: 6px 10px;
+    padding: 6px 9px;
     font-size: 13px;
-    min-height: 34px;
+    min-height: 32px;
+  }
+
+  .properties-bar {
+    height: 38px;
+    min-height: 38px;
+    padding: 0 8px;
+  }
+
+  .properties-content {
+    gap: 6px;
+  }
+
+  .properties-label {
+    display: none;
+  }
+
+  .size-input {
+    width: 44px;
+    font-size: 12px;
+  }
+
+  .aspect-lock-text {
+    display: none;
+  }
+
+  .hint-sub {
+    display: none;
   }
 
   .workspace {
-    padding: 12px;
+    padding: 10px;
   }
 }
 
